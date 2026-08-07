@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Generate the native Android project cleanly on EAS.
+# Local generated files can contain absolute Windows paths.
+android/
+
+# native credentials
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# operating systems and editors
+.DS_Store
+.idea/
+.vscode/
+
+# local environment files
+.env
+.env.local
+.env.*.local
