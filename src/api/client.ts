@@ -7,7 +7,7 @@
  * - 401 时只触发一次并发共享的 refresh，再重放原请求
  */
 
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://47.99.60.124';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://47.112.12.213';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const UPLOAD_TIMEOUT_MS = 60_000;

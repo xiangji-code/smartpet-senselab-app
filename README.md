@@ -19,7 +19,7 @@
 # 1. 安装依赖（已安装可跳过）
 npm install
 
-# 2. 配置后端地址（默认 https://47.99.60.124）
+# 2. 配置后端地址（默认 https://47.112.12.213）
 cp .env.example .env
 # 编辑 .env 里的 EXPO_PUBLIC_API_URL
 
