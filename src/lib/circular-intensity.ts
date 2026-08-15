@@ -9,6 +9,15 @@ export function intensityProgress(value: number, max: number): number {
   return clampIntensity(value, max) / max;
 }
 
+export function intensityFromHorizontalPosition(
+  position: number,
+  width: number,
+  max: number,
+): number {
+  if (width <= 0) return 1;
+  return clampIntensity((position / width) * max, max);
+}
+
 export function intensityFromPoint(
   x: number,
   y: number,
