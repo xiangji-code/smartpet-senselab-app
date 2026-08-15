@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text } from 'react-native';
 
 import { PetForm, type PetFormInput } from '../../src/components/PetForm';
 import { ConfirmModal } from '../../src/components/ConfirmModal';
@@ -44,7 +44,16 @@ export default function EditPetScreen() {
     setError(null);
     try {
       await petsApi.update(petId, input);
-      if (input.avatarFile) await petsApi.uploadAvatar(petId, input.avatarFile);
+      if (input.avatarFile) {
+        try {
+          await petsApi.uploadAvatar(petId, input.avatarFile);
+        } catch {
+          Alert.alert(
+            '档案已保存',
+            '宠物资料已经更新，但头像上传失败。你可以稍后重新上传头像。',
+          );
+        }
+      }
       router.back();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '保存失败，请稍后再试');
