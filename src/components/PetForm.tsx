@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@expo/ui/community/datetime-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { type ReactNode, useState } from 'react';
 import {
@@ -18,6 +19,20 @@ import { colors, fontSize, radius, spacing } from '../theme/theme';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
+function parseDate(value: string): Date {
+  const match = DATE_RE.exec(value);
+  if (!match) return new Date();
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function formatDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export interface PetFormInput extends PetInput {
   avatarFile?: PetAvatarFile;
@@ -40,6 +55,7 @@ export function PetForm({
   const [breed, setBreed] = useState(initial?.breed ?? '');
   const [sex, setSex] = useState<string>(initial?.sex ?? '');
   const [birthday, setBirthday] = useState(initial?.birthday ?? '');
+  const [showBirthdayPicker, setShowBirthdayPicker] = useState(false);
   const [weight, setWeight] = useState(
     initial?.weightKg != null ? String(initial.weightKg) : '',
   );
@@ -154,7 +170,42 @@ export function PetForm({
         </View>
       </Field>
       <Field label="生日">
-        <TextInput accessibilityLabel="宠物生日" style={styles.input} value={birthday} onChangeText={setBirthday} placeholder="YYYY-MM-DD" placeholderTextColor={colors.muted} autoCapitalize="none" />
+        <View style={styles.pickerField}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="选择宠物生日"
+            style={styles.pickerButton}
+            onPress={() => setShowBirthdayPicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color={colors.greenDark} />
+            <Text style={[styles.pickerValue, !birthday && styles.pickerPlaceholder]}>
+              {birthday || '请选择日期'}
+            </Text>
+          </Pressable>
+          {birthday ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="清空宠物生日"
+              hitSlop={8}
+              onPress={() => setBirthday('')}
+            >
+              <Ionicons name="close-circle" size={22} color={colors.muted} />
+            </Pressable>
+          ) : null}
+        </View>
+        {showBirthdayPicker ? (
+          <DateTimePicker
+            value={parseDate(birthday)}
+            mode="date"
+            maximumDate={new Date()}
+            presentation={process.env.EXPO_OS === 'android' ? 'dialog' : 'inline'}
+            onValueChange={(_event, selectedDate) => {
+              setShowBirthdayPicker(false);
+              setBirthday(formatDate(selectedDate));
+            }}
+            onDismiss={() => setShowBirthdayPicker(false)}
+          />
+        ) : null}
       </Field>
       <Field label="体重 (kg)">
         <TextInput accessibilityLabel="宠物体重，单位千克" style={styles.input} value={weight} onChangeText={setWeight} placeholder="如：8.5" placeholderTextColor={colors.muted} keyboardType="decimal-pad" />
@@ -210,6 +261,19 @@ const styles = StyleSheet.create({
     color: colors.ink,
     backgroundColor: '#fff',
   },
+  pickerField: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: '#fff',
+  },
+  pickerButton: { minHeight: 46, flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  pickerValue: { flex: 1, color: colors.ink },
+  pickerPlaceholder: { color: colors.muted },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   avatarPreview: { width: 56, height: 56, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.mint },
   avatarImage: { width: '100%', height: '100%' },
