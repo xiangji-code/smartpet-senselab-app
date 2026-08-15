@@ -581,8 +581,23 @@ function CircularIntensityDial({
         onPress={onActivate}
         style={({ pressed }) => [styles.remoteDialInner, danger && styles.remoteDialInnerDanger, pressed && styles.remoteDialPressed]}
       >
-        {sendingPhase ? <ActivityIndicator color={activeColor} /> : <Text style={[styles.remoteDialLabel, danger && styles.remoteDialLabelDanger]}>{label}</Text>}
-        <Text style={styles.remoteDialValue}>{sendingPhase ?? `${value} / ${max}`}</Text>
+        {sendingPhase ? (
+          <>
+            <ActivityIndicator color="#FFFFFF" />
+            <Text style={styles.remoteDialValue}>{sendingPhase}</Text>
+          </>
+        ) : (
+          <>
+            <View style={styles.remoteDialActionRow}>
+              <Ionicons name="play" size={16} color="#FFFFFF" />
+              <Text style={styles.remoteDialLabel}>{label}</Text>
+            </View>
+            <Text style={styles.remoteDialValue}>{value} / {max}</Text>
+            <View style={styles.remoteDialCue}>
+              <Text style={styles.remoteDialCueText}>点击发送</Text>
+            </View>
+          </>
+        )}
       </Pressable>
     </View>
   );
@@ -1034,12 +1049,14 @@ const styles = StyleSheet.create({
   remoteDial: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.panel },
   remoteDialStatic: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: DIAL_STROKE, borderColor: colors.green, backgroundColor: colors.panel },
   dialKnob: { position: 'absolute', width: DIAL_KNOB_SIZE, height: DIAL_KNOB_SIZE, borderRadius: radius.pill, borderWidth: 4, borderColor: colors.panel },
-  remoteDialPressed: { transform: [{ scale: 0.97 }], opacity: 0.86 },
-  remoteDialInner: { width: 112, height: 112, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt },
-  remoteDialInnerDanger: { backgroundColor: colors.dangerSurface },
-  remoteDialLabel: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
-  remoteDialLabelDanger: { color: colors.red },
-  remoteDialValue: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  remoteDialPressed: { transform: [{ scale: 0.93 }], opacity: 0.88 },
+  remoteDialInner: { width: 116, height: 116, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: radius.pill, borderWidth: 5, borderColor: colors.panel, backgroundColor: colors.green, boxShadow: '0 6px 14px rgba(16, 24, 64, 0.24)' },
+  remoteDialInnerDanger: { backgroundColor: colors.red },
+  remoteDialActionRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  remoteDialLabel: { color: '#FFFFFF', fontSize: fontSize.title, fontWeight: '900' },
+  remoteDialValue: { color: 'rgba(255, 255, 255, 0.9)', fontSize: fontSize.small, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  remoteDialCue: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: 'rgba(255, 255, 255, 0.22)' },
+  remoteDialCueText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
   dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   dialStepButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.soft },
   dialStepText: { color: colors.indigo, fontSize: 24, fontWeight: '800' },

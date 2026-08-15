@@ -46,9 +46,6 @@ export default function DevicesScreen() {
   );
 
   const boundDevices = devices.filter((device) => device.bindStatus === 'bound');
-  const linkedPets = new Set(
-    devices.map((device) => petNameByDevice[device.id]).filter(Boolean),
-  );
   const pets = Object.values(petById);
   const openRename = (device: Device) => {
     setRenameError(null);
@@ -139,14 +136,6 @@ export default function DevicesScreen() {
               </View>
             )}
 
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>账号概览</Text>
-              <View style={styles.summaryRow}>
-                <SummaryMetric value={String(boundDevices.length)} label="已绑定设备" />
-                <View style={styles.divider} />
-                <SummaryMetric value={String(linkedPets.size)} label="已关联宠物" />
-              </View>
-            </View>
           </>
         )}
       </ScrollView>
@@ -207,14 +196,14 @@ function CompactDeviceCard({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`编辑设备 ${device.deviceName || device.deviceSn} 的名称`}
-            hitSlop={8}
+            hitSlop={11}
             style={({ pressed }) => [styles.editNameButton, pressed && styles.pressed]}
             onPress={(event) => {
               event.stopPropagation();
               onEditName();
             }}
           >
-            <Ionicons name="pencil-outline" size={15} color={colors.greenDark} />
+            <Ionicons name="pencil-outline" size={17} color={colors.greenDark} />
           </Pressable>
         </View>
         <Text numberOfLines={1} style={styles.deviceMeta}>{deviceTypeLabel(device.deviceType)}{petName ? ` · 已关联 ${petName}` : ''}</Text>
@@ -236,15 +225,6 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle?: string })
     <View style={styles.sectionHeading}>
       <Text style={styles.sectionTitle}>{title}</Text>
       {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
-    </View>
-  );
-}
-
-function SummaryMetric({ value, label }: { value: string; label: string }) {
-  return (
-    <View style={styles.summaryMetric}>
-      <Text style={styles.summaryValue}>{value}</Text>
-      <Text style={styles.summaryLabel}>{label}</Text>
     </View>
   );
 }
@@ -289,18 +269,11 @@ const styles = StyleSheet.create({
   deviceIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.indigoSoft },
   deviceInitial: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '900' },
   deviceCopy: { flex: 1, minWidth: 0, gap: 2 },
-  deviceNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  deviceNameRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   deviceName: { flexShrink: 1, color: colors.ink, fontSize: fontSize.small, fontWeight: '900' },
-  editNameButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.lineStrong, backgroundColor: colors.mint },
+  editNameButton: { width: 24, height: 28, alignItems: 'center', justifyContent: 'center' },
   deviceMeta: { color: colors.muted, fontSize: 11 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingTop: 3 },
   deviceAction: { flexDirection: 'row', alignItems: 'center', gap: 1, paddingHorizontal: 9, minHeight: 32, borderRadius: radius.sm, backgroundColor: colors.green },
   controlText: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  summaryCard: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.panel },
-  summaryTitle: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '900' },
-  summaryRow: { flexDirection: 'row', alignItems: 'center' },
-  summaryMetric: { flex: 1, gap: 2 },
-  summaryValue: { color: colors.indigo, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] },
-  summaryLabel: { color: colors.muted, fontSize: fontSize.tiny },
-  divider: { width: StyleSheet.hairlineWidth, height: 38, marginHorizontal: spacing.md, backgroundColor: colors.line },
 });
