@@ -11,7 +11,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
 
 import { ConfirmModal } from '../../src/components/ConfirmModal';
 import { BleReceivePreviewCard } from '../../src/components/BleReceivePreviewCard';
@@ -50,7 +49,7 @@ import {
   onlineLabel,
   resolveDeviceStatus,
 } from '../../src/lib/deviceDisplay';
-import { clampIntensity, intensityFromPoint, intensityProgress } from '../../src/lib/circular-intensity';
+import { clampIntensity, intensityFromHorizontalPosition } from '../../src/lib/circular-intensity';
 import { href } from '../../src/lib/nav';
 import type { Device, DogSizeMode, TrainerCommand } from '../../src/types/domain';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
@@ -334,12 +333,17 @@ function TrainerControls({ device }: { device: Device }) {
               sendingPhase={sending ? trainerCommandPhaseLabel(sending.phase) : null}
               value={selectedIntensity}
               onActivate={() => void send(selectedCommand, true)}
-              onChange={setSelectedIntensity}
             />
           )}
           {selectedCommand !== 'light' ? <View style={styles.dialStepper}>
             <Pressable accessibilityRole="button" accessibilityLabel="降低强度一档" disabled={sending !== null || selectedIntensity <= 1} style={[styles.dialStepButton, (sending !== null || selectedIntensity <= 1) && styles.btnMuted]} onPress={() => changeSelectedIntensity(-1)}><Text style={styles.dialStepText}>−</Text></Pressable>
-            <Text style={styles.dialHint}>强度</Text>
+            <HorizontalIntensitySlider
+              danger={selectedCommand === 'shock'}
+              disabled={sending !== null}
+              max={selectedMax}
+              value={selectedIntensity}
+              onChange={setSelectedIntensity}
+            />
             <Pressable accessibilityRole="button" accessibilityLabel="提高强度一档" disabled={sending !== null || selectedIntensity >= selectedMax} style={[styles.dialStepButton, (sending !== null || selectedIntensity >= selectedMax) && styles.btnMuted]} onPress={() => changeSelectedIntensity(1)}><Text style={styles.dialStepText}>+</Text></Pressable>
           </View> : null}
         </View>
@@ -477,11 +481,7 @@ function TrainerActionBlock({
   );
 }
 
-const DIAL_SIZE = 164;
-const DIAL_STROKE = 16;
-const DIAL_RADIUS = (DIAL_SIZE - DIAL_STROKE) / 2;
-const DIAL_CIRCUMFERENCE = 2 * Math.PI * DIAL_RADIUS;
-const DIAL_KNOB_SIZE = 24;
+const DIAL_SIZE = 132;
 
 function CircularIntensityDial({
   danger,
@@ -491,7 +491,6 @@ function CircularIntensityDial({
   sendingPhase,
   value,
   onActivate,
-  onChange,
 }: {
   danger: boolean;
   disabled: boolean;
@@ -500,106 +499,122 @@ function CircularIntensityDial({
   sendingPhase: string | null;
   value: number;
   onActivate: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`发送${label}指令，当前强度 ${value} 档`}
+      accessibilityHint="点击后立即发送并等待设备回执"
+      accessibilityState={{ disabled, busy: disabled }}
+      disabled={disabled}
+      onPress={onActivate}
+      style={({ pressed }) => [
+        styles.remoteDialInner,
+        danger && styles.remoteDialInnerDanger,
+        pressed && styles.remoteDialPressed,
+        disabled && styles.btnMuted,
+      ]}
+    >
+      {sendingPhase ? (
+        <>
+          <ActivityIndicator color="#FFFFFF" />
+          <Text style={styles.remoteDialValue}>{sendingPhase}</Text>
+        </>
+      ) : (
+        <>
+          <View style={styles.remoteDialActionRow}>
+            <Ionicons name="play" size={16} color="#FFFFFF" />
+            <Text style={styles.remoteDialLabel}>{label}</Text>
+          </View>
+          <Text style={styles.remoteDialValue}>{value} / {max}</Text>
+          <View style={styles.remoteDialCue}>
+            <Text style={styles.remoteDialCueText}>点击发送</Text>
+          </View>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+function HorizontalIntensitySlider({
+  danger,
+  disabled,
+  max,
+  value,
+  onChange,
+}: {
+  danger: boolean;
+  disabled: boolean;
+  max: number;
+  value: number;
   onChange: (value: number) => void;
 }) {
-  const currentValue = useRef(value);
-  const dialRef = useRef<View>(null);
-  const dialOrigin = useRef<{ x: number; y: number } | null>(null);
-  currentValue.current = value;
-  const progress = intensityProgress(value, max);
-  const knobAngle = progress * Math.PI * 2 + Math.PI / 2;
-  const knobLeft = DIAL_SIZE / 2 + DIAL_RADIUS * Math.cos(knobAngle) - DIAL_KNOB_SIZE / 2;
-  const knobTop = DIAL_SIZE / 2 + DIAL_RADIUS * Math.sin(knobAngle) - DIAL_KNOB_SIZE / 2;
+  const sliderRef = useRef<View>(null);
+  const sliderOrigin = useRef(0);
+  const sliderWidth = useRef(0);
   const activeColor = danger ? colors.red : colors.green;
-  const trackColor = danger ? '#F3C4BF' : colors.line;
-  const measureDial = useCallback(() => {
-    dialRef.current?.measureInWindow((x, y) => {
-      dialOrigin.current = { x, y };
+  const progress = value / max;
+
+  const measureSlider = useCallback(() => {
+    sliderRef.current?.measureInWindow((x, _y, width) => {
+      sliderOrigin.current = x;
+      sliderWidth.current = width;
     });
   }, []);
 
+  const updateFromPageX = useCallback((pageX: number) => {
+    onChange(
+      intensityFromHorizontalPosition(
+        pageX - sliderOrigin.current,
+        sliderWidth.current,
+        max,
+      ),
+    );
+  }, [max, onChange]);
+
   const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, gesture) => !disabled && Math.hypot(gesture.dx, gesture.dy) >= 4,
-        onPanResponderGrant: measureDial,
-        onPanResponderMove: (_, gesture) => {
-          const origin = dialOrigin.current;
-          if (!origin) return;
-          onChange(
-            intensityFromPoint(
-              gesture.moveX - origin.x,
-              gesture.moveY - origin.y,
-              DIAL_SIZE,
-              max,
-              currentValue.current,
-            ),
-          );
-        },
-      }),
-    [disabled, max, measureDial, onChange],
+    () => PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_, gesture) => (
+        !disabled
+        && Math.abs(gesture.dx) >= 6
+        && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2
+      ),
+      onPanResponderGrant: measureSlider,
+      onPanResponderMove: (_, gesture) => updateFromPageX(gesture.moveX),
+    }),
+    [disabled, measureSlider, updateFromPageX],
   );
 
   return (
-    <View
-      ref={dialRef}
+    <Pressable
+      ref={sliderRef}
       accessibilityRole="adjustable"
-      accessibilityLabel={`${label}强度`}
-      accessibilityHint="沿圆环拖动调节强度，点击中心发送指令"
+      accessibilityLabel="强度档位"
+      accessibilityHint="点击或左右拖动调节强度"
       accessibilityState={{ disabled }}
       accessibilityValue={{ min: 1, max, now: value, text: `${value} 档，共 ${max} 档` }}
-      accessibilityActions={[{ name: 'increment', label: '提高一档' }, { name: 'decrement', label: '降低一档' }]}
-      onAccessibilityAction={(event) => onChange(value + (event.nativeEvent.actionName === 'increment' ? 1 : -1))}
-      onLayout={measureDial}
-      style={[styles.remoteDial, disabled && styles.btnMuted]}
+      accessibilityActions={[
+        { name: 'increment', label: '提高一档' },
+        { name: 'decrement', label: '降低一档' },
+      ]}
+      disabled={disabled}
+      onAccessibilityAction={(event) => onChange(
+        value + (event.nativeEvent.actionName === 'increment' ? 1 : -1),
+      )}
+      onLayout={measureSlider}
+      onPress={(event) => onChange(
+        intensityFromHorizontalPosition(event.nativeEvent.locationX, sliderWidth.current, max),
+      )}
+      style={[styles.intensitySlider, disabled && styles.btnMuted]}
       {...panResponder.panHandlers}
     >
-      <Svg pointerEvents="none" width={DIAL_SIZE} height={DIAL_SIZE} style={StyleSheet.absoluteFill}>
-        <Circle cx={DIAL_SIZE / 2} cy={DIAL_SIZE / 2} r={DIAL_RADIUS} fill="none" stroke={trackColor} strokeWidth={DIAL_STROKE} />
-        <Circle
-          cx={DIAL_SIZE / 2}
-          cy={DIAL_SIZE / 2}
-          r={DIAL_RADIUS}
-          fill="none"
-          rotation={90}
-          origin={`${DIAL_SIZE / 2}, ${DIAL_SIZE / 2}`}
-          stroke={activeColor}
-          strokeDasharray={`${DIAL_CIRCUMFERENCE} ${DIAL_CIRCUMFERENCE}`}
-          strokeDashoffset={DIAL_CIRCUMFERENCE * (1 - progress)}
-          strokeLinecap="round"
-          strokeWidth={DIAL_STROKE}
-        />
-      </Svg>
-      <View pointerEvents="none" style={[styles.dialKnob, { backgroundColor: activeColor, left: knobLeft, top: knobTop }]} />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`发送${label}指令，当前强度 ${value} 档`}
-        accessibilityHint="点击后立即发送并等待设备回执"
-        accessibilityState={{ disabled, busy: disabled }}
-        disabled={disabled}
-        onPress={onActivate}
-        style={({ pressed }) => [styles.remoteDialInner, danger && styles.remoteDialInnerDanger, pressed && styles.remoteDialPressed]}
-      >
-        {sendingPhase ? (
-          <>
-            <ActivityIndicator color="#FFFFFF" />
-            <Text style={styles.remoteDialValue}>{sendingPhase}</Text>
-          </>
-        ) : (
-          <>
-            <View style={styles.remoteDialActionRow}>
-              <Ionicons name="play" size={16} color="#FFFFFF" />
-              <Text style={styles.remoteDialLabel}>{label}</Text>
-            </View>
-            <Text style={styles.remoteDialValue}>{value} / {max}</Text>
-            <View style={styles.remoteDialCue}>
-              <Text style={styles.remoteDialCueText}>点击发送</Text>
-            </View>
-          </>
-        )}
-      </Pressable>
-    </View>
+      <View pointerEvents="none" style={styles.intensitySliderTrack}>
+        <View style={[styles.intensitySliderFill, { backgroundColor: activeColor, width: `${progress * 100}%` }]} />
+        <View style={[styles.intensitySliderThumb, { backgroundColor: activeColor, left: `${progress * 100}%` }]} />
+      </View>
+      <Text pointerEvents="none" style={styles.intensitySliderLabel}>强度 {value}/{max}</Text>
+    </Pressable>
   );
 }
 
@@ -1046,21 +1061,23 @@ const styles = StyleSheet.create({
   remoteModeCueText: { color: colors.greenDark, fontSize: 9, fontWeight: '800' },
   remoteModeCueTextStrong: { color: '#FFFFFF' },
   remoteDialArea: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
-  remoteDial: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.panel },
-  remoteDialStatic: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: DIAL_STROKE, borderColor: colors.green, backgroundColor: colors.panel },
-  dialKnob: { position: 'absolute', width: DIAL_KNOB_SIZE, height: DIAL_KNOB_SIZE, borderRadius: radius.pill, borderWidth: 4, borderColor: colors.panel },
+  remoteDialStatic: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.green },
   remoteDialPressed: { transform: [{ scale: 0.93 }], opacity: 0.88 },
-  remoteDialInner: { width: 116, height: 116, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: radius.pill, borderWidth: 5, borderColor: colors.panel, backgroundColor: colors.green, boxShadow: '0 6px 14px rgba(16, 24, 64, 0.24)' },
+  remoteDialInner: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: radius.pill, backgroundColor: colors.green, boxShadow: '0 6px 14px rgba(16, 24, 64, 0.24)' },
   remoteDialInnerDanger: { backgroundColor: colors.red },
   remoteDialActionRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   remoteDialLabel: { color: '#FFFFFF', fontSize: fontSize.title, fontWeight: '900' },
   remoteDialValue: { color: 'rgba(255, 255, 255, 0.9)', fontSize: fontSize.small, fontWeight: '800', fontVariant: ['tabular-nums'] },
   remoteDialCue: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: 'rgba(255, 255, 255, 0.22)' },
   remoteDialCueText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
-  dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   dialStepButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.soft },
   dialStepText: { color: colors.indigo, fontSize: 24, fontWeight: '800' },
-  dialHint: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  intensitySlider: { flex: 1, minWidth: 120, height: 52, justifyContent: 'center', gap: spacing.sm },
+  intensitySliderTrack: { height: 8, borderRadius: radius.pill, backgroundColor: colors.line },
+  intensitySliderFill: { height: '100%', borderRadius: radius.pill },
+  intensitySliderThumb: { position: 'absolute', top: -6, width: 20, height: 20, marginLeft: -10, borderRadius: radius.pill, borderWidth: 3, borderColor: colors.panel },
+  intensitySliderLabel: { color: colors.muted, fontSize: fontSize.small, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
   remotePrimary: { flex: 1, minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.green },
   remotePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
   remoteStop: { flex: 1, minHeight: 50, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.sm, backgroundColor: colors.panel },
