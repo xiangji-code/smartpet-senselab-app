@@ -2,7 +2,7 @@
  * 宠物档案 API（对接后端 `/api/app/pets`）。
  * snake_case DTO ↔ 领域类型（camelCase）映射。
  */
-import { api } from './client';
+import { api, ApiError } from './client';
 import type { EntityStatus, PetProfile } from '../types/domain';
 
 interface PetDto {
@@ -67,6 +67,10 @@ function toBody(input: PetInput): Record<string, unknown> {
 
 const BASE = '/api/app/pets';
 
+export function createPetRequestKey(): string {
+  return `pet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export const petsApi = {
   async list(includeInactive = false): Promise<PetProfile[]> {
     const dtos = await api.get<PetDto[]>(
@@ -79,8 +83,17 @@ export const petsApi = {
     return mapPet(await api.get<PetDto>(`${BASE}/${id}`));
   },
 
-  async create(input: PetInput): Promise<PetProfile> {
-    return mapPet(await api.post<PetDto>(BASE, toBody(input)));
+  async create(input: PetInput, idempotencyKey = createPetRequestKey()): Promise<PetProfile> {
+    const create = () =>
+      api.post<PetDto>(BASE, toBody(input), {
+        headers: { 'Idempotency-Key': idempotencyKey },
+      });
+    try {
+      return mapPet(await create());
+    } catch (error) {
+      if (!(error instanceof ApiError) || !error.retryable) throw error;
+      return mapPet(await create());
+    }
   },
 
   async update(id: number, input: PetInput): Promise<PetProfile> {

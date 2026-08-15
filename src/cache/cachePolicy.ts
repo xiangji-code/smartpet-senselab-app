@@ -3,6 +3,7 @@ export const CACHE_MAX_BYTES_PER_USER = 10 * 1024 * 1024;
 
 export const cacheKeys = {
   entities: 'entities:v1',
+  petBreeds: 'pet-breeds:v1',
   messages: 'messages:v1',
   records: (filters: {
     deviceId?: number;

@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { upload } = vi.hoisted(() => ({ upload: vi.fn() }));
+const { upload, post } = vi.hoisted(() => ({ upload: vi.fn(), post: vi.fn() }));
 
 vi.mock('./client', () => ({
-  api: { upload },
+  ApiError: class ApiError extends Error {
+    retryable = false;
+  },
+  api: { upload, post },
 }));
 
 vi.mock('expo-file-system', () => ({
@@ -46,5 +49,22 @@ describe('petsApi.uploadAvatar', () => {
     expect(path).toBe('/api/app/pets/7/avatar');
     expect(body).toBeInstanceOf(FormData);
     expect(body.get('file')).toBeInstanceOf(Blob);
+  });
+});
+
+describe('petsApi.create', () => {
+  beforeEach(() => {
+    post.mockReset();
+    post.mockResolvedValue(petDto);
+  });
+
+  it('sends a stable idempotency key to prevent duplicate profiles', async () => {
+    await petsApi.create({ name: '豆豆' }, 'create-pet-request-001');
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/app/pets',
+      { name: '豆豆' },
+      { headers: { 'Idempotency-Key': 'create-pet-request-001' } },
+    );
   });
 });

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -12,7 +13,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { filterDogBreeds } from '../data/dog-breeds';
+import { filterPetBreeds, petBreedsApi, type PetBreedOption } from '../api/petBreeds';
+import { useAuth } from '../auth/AuthContext';
+import { cacheKeys } from '../cache/cachePolicy';
+import { appCache } from '../cache/cacheStore';
 import { colors, fontSize, radius, spacing } from '../theme/theme';
 
 export function BreedPickerModal({
@@ -27,8 +31,43 @@ export function BreedPickerModal({
   onSelect: (value: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
-  const options = useMemo(() => filterDogBreeds(query), [query]);
+  const [breeds, setBreeds] = useState<PetBreedOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const options = useMemo(() => filterPetBreeds(breeds, query), [breeds, query]);
+
+  useEffect(() => {
+    if (!visible || !user) return;
+    const userId = user.id;
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const cached = await appCache.get<PetBreedOption[]>(userId, cacheKeys.petBreeds);
+        if (!cancelled && cached) setBreeds(cached.value);
+      } catch {
+        // A cache failure must not prevent a fresh network request.
+      }
+      try {
+        const next = await petBreedsApi.list('dog');
+        if (cancelled) return;
+        setBreeds(next);
+        await appCache.set(userId, cacheKeys.petBreeds, next).catch(() => undefined);
+      } catch {
+        if (!cancelled) setLoadError('暂时无法更新品种列表');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken, user, visible]);
 
   function select(nextValue: string) {
     onSelect(nextValue);
@@ -49,7 +88,7 @@ export function BreedPickerModal({
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>选择品种</Text>
-              <Text style={styles.subtitle}>支持中文或英文搜索</Text>
+              <Text style={styles.subtitle}>支持中文、英文和常用别名搜索</Text>
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="关闭品种选择" hitSlop={8} onPress={close}>
               <Ionicons name="close" size={26} color={colors.ink} />
@@ -81,17 +120,32 @@ export function BreedPickerModal({
             <Choice label="其他" selected={value === '其他'} icon="ellipsis-horizontal-circle-outline" onPress={() => select('其他')} />
           </View>
 
+          {loading && breeds.length === 0 ? (
+            <View style={styles.statusRow}>
+              <ActivityIndicator color={colors.green} />
+              <Text style={styles.statusText}>正在加载品种…</Text>
+            </View>
+          ) : null}
+          {loadError ? (
+            <View style={styles.statusRow}>
+              <Text style={styles.statusText}>{loadError}{breeds.length ? '，正在使用上次数据' : ''}</Text>
+              <Pressable accessibilityRole="button" onPress={() => setReloadToken((token) => token + 1)}>
+                <Text style={styles.retryText}>重试</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <FlatList
             data={options}
-            keyExtractor={(item) => item.value}
+            keyExtractor={(item) => item.code}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.list}
-            ListEmptyComponent={
+            ListEmptyComponent={!loading ? (
               <View style={styles.empty}>
                 <Text style={styles.emptyTitle}>没有搜索到对应品种</Text>
                 <Text style={styles.emptyText}>可以选择上方“其他”，或保持未选择。</Text>
               </View>
-            }
+            ) : null}
             renderItem={({ item }) => {
               const selected = value === item.value;
               return (
@@ -101,7 +155,10 @@ export function BreedPickerModal({
                   style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
                   onPress={() => select(item.value)}
                 >
-                  <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{item.value}</Text>
+                  <View>
+                    <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{item.value}</Text>
+                    {item.nameEn ? <Text style={styles.optionSubtext}>{item.nameEn}</Text> : null}
+                  </View>
                   {selected ? <Ionicons name="checkmark-circle" size={22} color={colors.green} /> : null}
                 </Pressable>
               );
@@ -132,14 +189,18 @@ const styles = StyleSheet.create({
   searchBox: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
   searchInput: { flex: 1, color: colors.ink, fontSize: fontSize.body },
   specialRow: { flexDirection: 'row', gap: spacing.sm },
+  statusRow: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  statusText: { color: colors.muted, fontSize: fontSize.small },
+  retryText: { color: colors.greenDark, fontWeight: '800' },
   choice: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.green, borderRadius: radius.md, backgroundColor: colors.mint },
   choiceSelected: { backgroundColor: colors.green },
   choiceText: { color: colors.greenDark, fontWeight: '800' },
   choiceTextSelected: { color: '#FFFFFF' },
   list: { paddingBottom: spacing.md },
-  option: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.line },
+  option: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.line },
   optionPressed: { backgroundColor: colors.mint },
   optionText: { color: colors.ink, fontSize: fontSize.body },
+  optionSubtext: { paddingTop: 2, color: colors.muted, fontSize: fontSize.small },
   optionTextSelected: { color: colors.greenDark, fontWeight: '800' },
   empty: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.xxl },
   emptyTitle: { color: colors.ink, fontWeight: '800' },

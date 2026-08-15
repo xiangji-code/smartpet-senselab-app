@@ -1,11 +1,11 @@
 import { Stack, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, StyleSheet, Text } from 'react-native';
 
 import { DesignScreen } from '../../src/components/design-screen';
 import { PageBackButton } from '../../src/components/page-back-button';
 import { PetForm, type PetFormInput } from '../../src/components/PetForm';
-import { petsApi, type PetInput } from '../../src/api/pets';
+import { createPetRequestKey, petsApi } from '../../src/api/pets';
 import { ApiError } from '../../src/api/client';
 import { colors, fontSize, spacing } from '../../src/theme/theme';
 
@@ -13,12 +13,20 @@ export default function NewPetScreen() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
+  const requestRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   async function create(input: PetFormInput) {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     setError(null);
+    const fingerprint = JSON.stringify(input);
+    if (!requestRef.current || requestRef.current.fingerprint !== fingerprint) {
+      requestRef.current = { fingerprint, key: createPetRequestKey() };
+    }
     try {
-      const pet = await petsApi.create(input);
+      const pet = await petsApi.create(input, requestRef.current.key);
       if (input.avatarFile) {
         try {
           await petsApi.uploadAvatar(pet.id, input.avatarFile);
@@ -29,10 +37,12 @@ export default function NewPetScreen() {
           );
         }
       }
+      requestRef.current = null;
       router.back();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '创建失败，请稍后再试');
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   }
