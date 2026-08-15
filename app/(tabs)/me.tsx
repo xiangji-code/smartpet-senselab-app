@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 
 import { Screen } from '../../src/components/Screen';
 import { SectionCard } from '../../src/components/SectionCard';
@@ -10,18 +11,21 @@ import { ConfirmModal } from '../../src/components/ConfirmModal';
 import { useAuth } from '../../src/auth/AuthContext';
 import { useConsent } from '../../src/consent/ConsentContext';
 import { href } from '../../src/lib/nav';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
 
 export default function MeScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const { consent, ready: consentReady, error: consentError, setConsent } = useConsent();
+  const { language, setLanguage, t } = useLanguage();
   const [confirmOut, setConfirmOut] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
+  const [languageExpanded, setLanguageExpanded] = useState(false);
 
   const statusLabel =
-    user?.status === 'active' ? '正常' : user?.status === 'suspended' ? '已停用' : '未激活';
+    user?.status === 'active' ? t.normal : user?.status === 'suspended' ? t.suspended : t.inactive;
 
   async function updateConsent(value: boolean) {
     if (!consentReady || savingConsent) return;
@@ -36,11 +40,12 @@ export default function MeScreen() {
   }
 
   return (
-    <Screen title="我的" subtitle="账号、隐私与帮助">
+    <Screen>
+      <StatusBar style="dark" />
       <SectionCard>
-        <View style={styles.userRow}>
+        <View style={styles.profileHero}>
           <View style={styles.avatar}>
-            <Ionicons name="person" size={22} color={colors.greenDark} />
+            <Text style={styles.avatarText}>SP</Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text selectable style={styles.email}>
@@ -51,35 +56,56 @@ export default function MeScreen() {
         </View>
       </SectionCard>
 
-      <SectionCard title="宠物与设备">
-        <Row icon="paw-outline" label="宠物档案" onPress={() => router.push(href('/pets'))} />
+      <SectionCard title={t.petsAndDevices}>
+        <Row icon="paw-outline" label={t.petProfiles} hint={t.openItem(t.petProfiles)} onPress={() => router.push(href('/pets'))} />
       </SectionCard>
 
-      <SectionCard title="本地存储">
+      <SectionCard title={language === 'zh' ? '设置' : 'Settings'}>
+        <Row
+          icon="language-outline"
+          label={t.language}
+          value={language === 'zh' ? t.chinese : t.english}
+          hint={t.languageDescription}
+          onPress={() => setLanguageExpanded((value) => !value)}
+        />
+        {languageExpanded ? (
+          <View style={styles.languageOptions}>
+            {([
+              { value: 'zh' as const, label: t.chinese },
+              { value: 'en' as const, label: t.english },
+            ]).map((option) => (
+              <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ selected: language === option.value }} style={({ pressed }) => [styles.languageOption, pressed && styles.rowPressed]} onPress={() => { void setLanguage(option.value); setLanguageExpanded(false); }}>
+                <Text style={[styles.languageOptionText, language === option.value && styles.languageOptionTextActive]}>{option.label}</Text>
+                {language === option.value ? <Ionicons name="checkmark-circle" size={20} color={colors.greenDark} /> : <Ionicons name="ellipse-outline" size={20} color={colors.muted} />}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.separator} />
         <Row
           icon="server-outline"
-          label="存储与缓存"
+          label={t.storageAndCache}
+          hint={t.openItem(t.storageAndCache)}
           onPress={() => router.push(href('/storage-cache'))}
         />
-      </SectionCard>
-
-      <SectionCard title="隐私与数据采集授权">
+        <View style={styles.separator} />
         <View style={styles.consentRow}>
+          <View style={styles.rowIcon}><Ionicons name="shield-checkmark-outline" size={19} color={colors.greenDark} /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.consentTitle}>数据采集授权</Text>
+            <Text style={styles.consentTitle}>{t.dataConsent}</Text>
             <Text style={styles.meta}>
               {!consentReady
-                ? '正在读取当前账号的授权状态…'
+                ? t.consentLoading
                 : consent
-                ? '已授权：App 可采集并上传设备声音、行为与状态数据。'
-                : '已关闭：将停止后台采集与数据同步。'}
+                ? t.consentEnabled
+                : t.consentDisabled}
             </Text>
-            {savingConsent ? <Text style={styles.saving}>正在保存…</Text> : null}
+            {savingConsent ? <Text style={styles.saving}>{t.saving}</Text> : null}
             {consentError ? <Text style={styles.error}>{consentError}</Text> : null}
           </View>
           {consentReady ? (
             <Switch
-              accessibilityLabel="数据采集授权"
+              accessibilityLabel={t.dataConsent}
               value={consent}
               onValueChange={(value) => void updateConsent(value)}
               disabled={savingConsent}
@@ -89,26 +115,24 @@ export default function MeScreen() {
             <ActivityIndicator color={colors.green} />
           )}
         </View>
-      </SectionCard>
-
-      <SectionCard title="帮助与反馈">
-        <Row icon="help-circle-outline" label="常见问题与反馈" onPress={() => setShowHelp(true)} />
+        <View style={styles.separator} />
+        <Row icon="help-circle-outline" label={t.faq} hint={t.openItem(t.faq)} onPress={() => setShowHelp(true)} />
       </SectionCard>
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="退出登录"
+        accessibilityLabel={t.signOut}
         style={({ pressed }) => [styles.logout, pressed && styles.logoutPressed]}
         onPress={() => setConfirmOut(true)}
       >
-        <Text style={styles.logoutText}>退出登录</Text>
+        <Text style={styles.logoutText}>{t.signOut}</Text>
       </Pressable>
 
       <ConfirmModal
         visible={confirmOut}
-        title="退出登录"
-        message="退出后需重新登录才能访问设备与数据。确定退出吗？"
-        confirmText="退出"
+        title={t.signOut}
+        message={t.signOutMessage}
+        confirmText={t.signOut}
         destructive
         onConfirm={() => {
           setConfirmOut(false);
@@ -118,10 +142,10 @@ export default function MeScreen() {
       />
       <ConfirmModal
         visible={showHelp}
-        title="帮助与反馈"
-        message="如遇问题，请先在设备详情页检查连接状态。更多帮助与反馈渠道将在后续版本提供。"
-        confirmText="知道了"
-        cancelText="关闭"
+        title={t.helpAndFeedback}
+        message={t.helpMessage}
+        confirmText={t.understood}
+        cancelText={t.close}
         onConfirm={() => setShowHelp(false)}
         onCancel={() => setShowHelp(false)}
       />
@@ -132,22 +156,27 @@ export default function MeScreen() {
 function Row({
   icon,
   label,
+  value,
+  hint,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  value?: string;
+  hint: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint={`打开${label}`}
+      accessibilityHint={hint}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
     >
-      <Ionicons name={icon} size={20} color={colors.greenDark} />
+      <View style={styles.rowIcon}><Ionicons name={icon} size={19} color={colors.greenDark} /></View>
       <Text style={styles.rowLabel}>{label}</Text>
+      {value ? <Text style={styles.rowValue}>{value}</Text> : null}
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>
   );
@@ -155,15 +184,25 @@ function Row({
 
 const styles = StyleSheet.create({
   userRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  profileHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    margin: -spacing.lg,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.indigo,
+  },
   avatar: {
     width: 44,
     height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.mint,
+    backgroundColor: colors.green,
   },
-  email: { fontSize: fontSize.title, fontWeight: '800', color: colors.ink },
+  avatarText: { color: '#fff', fontSize: fontSize.small, fontWeight: '900' },
+  email: { fontSize: fontSize.title, fontWeight: '800', color: '#fff' },
   meta: { fontSize: fontSize.small, color: colors.muted, marginTop: 2 },
   saving: { fontSize: fontSize.small, color: colors.greenDark, marginTop: spacing.xs },
   error: { fontSize: fontSize.small, color: colors.red, marginTop: spacing.xs },
@@ -171,12 +210,18 @@ const styles = StyleSheet.create({
     minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.sm,
+    gap: spacing.sm,
     borderRadius: radius.sm,
   },
+  rowIcon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.mint },
   rowPressed: { backgroundColor: colors.soft },
   rowLabel: { flex: 1, fontSize: fontSize.body, color: colors.ink, fontWeight: '600' },
+  rowValue: { color: colors.muted, fontSize: fontSize.tiny },
+  languageOptions: { marginLeft: 38, marginBottom: spacing.sm, padding: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.soft },
+  languageOption: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.sm, borderRadius: radius.sm },
+  languageOptionText: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  languageOptionTextActive: { color: colors.greenDark },
+  separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   consentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   consentTitle: { fontSize: fontSize.body, fontWeight: '800', color: colors.ink },
   logout: {

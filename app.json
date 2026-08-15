@@ -3,7 +3,7 @@
     "name": "SmartPet SenseLab",
     "slug": "smartpet-senselab-app",
     "version": "0.1.0",
-    "icon": "./assets/icon-smartpet.png",
+    "icon": "./assets/app-icon-white.png",
     "orientation": "portrait",
     "scheme": "smartpet",
     "userInterfaceStyle": "light",
@@ -21,7 +21,7 @@
     "android": {
       "package": "com.smartpet.senselab",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon-smartpet.png",
+        "foregroundImage": "./assets/app-icon-white.png",
         "backgroundColor": "#FFFFFF"
       },
       "permissions": [
@@ -67,7 +67,16 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#101B4D",
+          "image": "./assets/smartpet-wordmark.png",
+          "imageWidth": 160,
+          "resizeMode": "contain"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -11,10 +11,17 @@ const toneColor: Record<Tone, string> = {
   muted: colors.muted,
 };
 
+const toneSurface: Record<Tone, string> = {
+  ok: colors.mint,
+  warn: colors.warningSurface,
+  bad: colors.dangerSurface,
+  muted: colors.soft,
+};
+
 /** 小圆点 + 文案的状态胶囊。 */
 export function StatusPill({ tone = 'muted', label }: { tone?: Tone; label: string }) {
   return (
-    <View accessible accessibilityLabel={label} style={styles.pill}>
+    <View accessible accessibilityLabel={label} style={[styles.pill, { backgroundColor: toneSurface[tone] }]}>
       <View style={[styles.dot, { backgroundColor: toneColor[tone] }]} />
       <Text style={styles.text}>{label}</Text>
     </View>
@@ -25,12 +32,11 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    backgroundColor: colors.soft,
+    gap: 3,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingVertical: 4,
   },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  text: { fontSize: fontSize.tiny, color: colors.ink, fontWeight: '600' },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  text: { fontSize: 11, color: colors.ink, fontWeight: '700' },
 });

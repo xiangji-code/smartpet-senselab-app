@@ -1,6 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { type ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -8,11 +11,17 @@ import {
   View,
 } from 'react-native';
 
-import type { PetInput } from '../api/pets';
+import { authorizedMediaSource } from '../api/client';
+import type { PetAvatarFile, PetInput } from '../api/pets';
 import type { PetProfile } from '../types/domain';
 import { colors, fontSize, radius, spacing } from '../theme/theme';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
+export interface PetFormInput extends PetInput {
+  avatarFile?: PetAvatarFile;
+}
 
 /** 宠物档案表单（创建/编辑复用）。 */
 export function PetForm({
@@ -24,7 +33,7 @@ export function PetForm({
   initial?: PetProfile;
   submitLabel: string;
   submitting: boolean;
-  onSubmit: (input: PetInput) => void;
+  onSubmit: (input: PetFormInput) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [species, setSpecies] = useState(initial?.species ?? 'dog');
@@ -34,6 +43,7 @@ export function PetForm({
   const [weight, setWeight] = useState(
     initial?.weightKg != null ? String(initial.weightKg) : '',
   );
+  const [avatarFile, setAvatarFile] = useState<PetAvatarFile | undefined>();
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [error, setError] = useState<string | null>(null);
 
@@ -63,14 +73,59 @@ export function PetForm({
       sex: sex.trim() || null,
       birthday: birthday.trim() || null,
       weightKg,
+      avatarUrl: initial?.avatarUrl,
+      avatarFile,
       notes: notes.trim() || null,
     });
+  }
+
+  async function selectAvatar() {
+    setError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError('需要允许访问照片，才能选择宠物头像');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    if (asset.fileSize != null && asset.fileSize > MAX_AVATAR_BYTES) {
+      setError('头像图片不能超过 5 MB');
+      return;
+    }
+    const mimeType = asset.mimeType || 'image/jpeg';
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+      setError('请选择 JPEG、PNG 或 WebP 图片');
+      return;
+    }
+    setAvatarFile({ uri: asset.uri, fileName: asset.fileName, mimeType });
   }
 
   return (
     <View style={styles.form}>
       <Field label="名称 *">
         <TextInput accessibilityLabel="宠物名称" style={styles.input} value={name} onChangeText={setName} placeholder="如：豆豆" placeholderTextColor={colors.muted} />
+      </Field>
+      <Field label="宠物头像">
+        <View style={styles.avatarRow}>
+          <View style={styles.avatarPreview}>
+            {avatarFile?.uri || initial?.avatarUrl ? (
+              <Image accessibilityLabel="宠物头像预览" source={avatarFile?.uri ? { uri: avatarFile.uri } : authorizedMediaSource(initial!.avatarUrl!)} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarInitial}>{name.trim().slice(0, 1).toUpperCase() || '宠'}</Text>
+            )}
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="从手机相册选择宠物头像" style={({ pressed }) => [styles.avatarButton, pressed && styles.btnPressed]} onPress={() => void selectAvatar()}>
+            <Ionicons name="images-outline" size={19} color={colors.greenDark} />
+            <Text style={styles.avatarButtonText}>{avatarFile || initial?.avatarUrl ? '更换头像' : '从相册选择'}</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.avatarHelp}>支持 JPEG、PNG、WebP，最大 5 MB。保存后会同步到宠物档案。</Text>
       </Field>
       <Field label="物种">
         <TextInput accessibilityLabel="宠物物种" style={styles.input} value={species} onChangeText={setSpecies} placeholder="dog" placeholderTextColor={colors.muted} />
@@ -138,26 +193,38 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  form: { gap: spacing.md },
+  form: {
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.panel,
+  },
   field: { gap: spacing.xs },
   label: { fontSize: fontSize.small, color: colors.muted, fontWeight: '600' },
   input: {
     minHeight: 48,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     padding: spacing.md,
     color: colors.ink,
     backgroundColor: '#fff',
   },
+  avatarRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  avatarPreview: { width: 56, height: 56, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.mint },
+  avatarImage: { width: '100%', height: '100%' },
+  avatarInitial: { color: colors.greenDark, fontSize: fontSize.title, fontWeight: '900' },
+  avatarButton: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.green, borderRadius: radius.md, backgroundColor: colors.mint },
+  avatarButtonText: { color: colors.greenDark, fontSize: fontSize.small, fontWeight: '800' },
+  avatarHelp: { color: colors.muted, fontSize: fontSize.tiny, lineHeight: 18 },
   multiline: { minHeight: 72, textAlignVertical: 'top' },
-  segment: { flexDirection: 'row', backgroundColor: colors.soft, borderRadius: radius.sm, padding: spacing.xs },
+  segment: { flexDirection: 'row', backgroundColor: colors.soft, borderRadius: radius.md, padding: spacing.xs },
   segBtn: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.sm - 2 },
   segActive: { backgroundColor: colors.panel },
   segText: { color: colors.muted, fontWeight: '700' },
   segTextActive: { color: colors.greenDark },
   error: { color: colors.red, fontSize: fontSize.small },
-  btn: { backgroundColor: colors.green, borderRadius: radius.sm, padding: spacing.md, alignItems: 'center', minHeight: 46, justifyContent: 'center' },
+  btn: { backgroundColor: colors.green, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
   btnPressed: { backgroundColor: colors.greenPressed },
   disabled: { opacity: 0.5 },
   btnText: { color: '#fff', fontWeight: '800' },

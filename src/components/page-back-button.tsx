@@ -3,7 +3,13 @@ import { Pressable, StyleSheet } from 'react-native';
 
 import { colors } from '../theme/theme';
 
-export function PageBackButton({ onPress }: { onPress: () => void }) {
+export function PageBackButton({
+  onPress,
+  color = colors.ink,
+}: {
+  onPress: () => void;
+  color?: string;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -12,7 +18,7 @@ export function PageBackButton({ onPress }: { onPress: () => void }) {
       style={({ pressed }) => [styles.button, pressed && styles.pressed]}
       onPress={onPress}
     >
-      <Ionicons name="arrow-back" size={24} color={colors.ink} />
+      <Ionicons name="arrow-back" size={24} color={color} />
     </Pressable>
   );
 }

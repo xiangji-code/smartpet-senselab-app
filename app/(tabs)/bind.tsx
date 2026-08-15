@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import { Screen } from '../../src/components/Screen';
+import { DesignScreen } from '../../src/components/design-screen';
 import { useAuth } from '../../src/auth/AuthContext';
 import { devicesApi } from '../../src/api/devices';
 import { ApiError } from '../../src/api/client';
@@ -136,7 +136,11 @@ export default function BindScreen() {
   }
 
   return (
-    <Screen title="添加设备" subtitle="扫描设备码后，还需连接蓝牙完成验证">
+    <DesignScreen title="添加设备" subtitle="扫描或手动输入设备码">
+      <View style={styles.sectionHeading}>
+        <Text style={styles.sectionTitle}>扫描设备二维码</Text>
+        <Text style={styles.sectionHint}>二维码通常位于设备背面或包装盒</Text>
+      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="打开相机扫描设备码"
@@ -145,36 +149,38 @@ export default function BindScreen() {
         onPress={openScanner}
         disabled={submitting}
       >
-        <Ionicons name="qr-code-outline" size={40} color={colors.greenDark} />
-        <Text style={styles.scanCardTitle}>扫描设备码</Text>
+        <View style={styles.qrFrame}>
+          <Ionicons name="qr-code-outline" size={76} color="#8DE2D8" />
+        </View>
+        <Text style={styles.scanCardTitle}>将设备二维码对准取景框</Text>
         <Text style={styles.scanCardSub}>
-          {isWeb ? 'Web 预览请使用下方手动输入' : '点击打开相机扫描设备二维码'}
+          {isWeb ? 'Web 预览请使用下方手动输入' : '点击打开相机扫码'}
         </Text>
       </Pressable>
 
-      <View style={styles.divider}>
-        <View style={styles.line} />
-        <Text style={styles.dividerText}>或手动输入设备码</Text>
-        <View style={styles.line} />
-      </View>
+      <Text style={styles.manualTitle}>或手动输入</Text>
 
       <View style={styles.card}>
-        <Text style={styles.fieldLabel}>设备码</Text>
-        <TextInput
-          style={styles.input}
-          accessibilityLabel="设备码"
-          placeholder="设备码（Device SN）"
-          placeholderTextColor={colors.muted}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          value={sn}
-          editable={!submitting}
-          onChangeText={(t) => {
-            setSn(t);
-            if (error) setError(null);
-          }}
-          onSubmitEditing={() => void bind(sn)}
-        />
+        <View style={styles.inputShell}>
+          <View style={styles.inputIcon}>
+            <Ionicons name="keypad-outline" size={20} color={colors.indigo} />
+          </View>
+          <TextInput
+            style={styles.input}
+            accessibilityLabel="设备码"
+            placeholder="请输入设备码"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            value={sn}
+            editable={!submitting}
+            onChangeText={(t) => {
+              setSn(t);
+              if (error) setError(null);
+            }}
+            onSubmitEditing={() => void bind(sn)}
+          />
+        </View>
 
         {error ? (
           <Text accessibilityRole="alert" style={styles.error}>
@@ -201,54 +207,78 @@ export default function BindScreen() {
           )}
         </Pressable>
       </View>
-    </Screen>
+
+      <View style={styles.infoCard}>
+        <Ionicons name="information-circle-outline" size={20} color={colors.blue} />
+        <View style={styles.infoCopy}>
+          <Text style={styles.infoTitle}>设备码仅用于绑定验证，不会公开展示</Text>
+          <Text style={styles.infoText}>验证通过后才能进入蓝牙连接流程</Text>
+        </View>
+      </View>
+    </DesignScreen>
   );
 }
 
 const styles = StyleSheet.create({
   scanCard: {
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.md,
+    minHeight: 252,
+    backgroundColor: colors.indigo,
+    borderRadius: radius.lg,
     padding: spacing.xl,
     alignItems: 'center',
-    gap: spacing.sm,
-  },
-  scanCardPressed: { borderColor: colors.lineStrong, backgroundColor: colors.surfaceAlt },
-  scanCardTitle: { fontSize: fontSize.title, fontWeight: '800', color: colors.ink },
-  scanCardSub: { fontSize: fontSize.small, color: colors.muted, textAlign: 'center' },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginVertical: spacing.xs,
-  },
-  line: { flex: 1, height: 1, backgroundColor: colors.line },
-  dividerText: { fontSize: fontSize.tiny, color: colors.muted },
-  card: {
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.md,
-    padding: spacing.lg,
+    justifyContent: 'center',
     gap: spacing.md,
   },
-  fieldLabel: { color: colors.ink, fontSize: fontSize.small, fontWeight: '700' },
-  input: {
-    minHeight: 48,
+  scanCardPressed: { opacity: 0.86 },
+  qrFrame: {
+    width: 148,
+    height: 148,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#8DE2D8',
+    borderRadius: radius.lg,
+  },
+  scanCardTitle: { fontSize: fontSize.body, fontWeight: '800', color: '#FFFFFF' },
+  scanCardSub: { fontSize: fontSize.small, color: '#C7CFE8', textAlign: 'center' },
+  sectionHeading: { gap: spacing.xs },
+  sectionTitle: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
+  sectionHint: { color: colors.muted, fontSize: fontSize.small },
+  manualTitle: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  card: {
+    gap: spacing.md,
+  },
+  inputShell: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.lineStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    gap: spacing.md,
+  },
+  inputIcon: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: radius.sm,
-    padding: spacing.md,
+    backgroundColor: colors.blueSoft,
+  },
+  input: {
+    flex: 1,
+    minHeight: 56,
+    paddingVertical: spacing.md,
     color: colors.ink,
-    backgroundColor: '#fff',
+    fontSize: fontSize.body,
   },
   btnPressed: { backgroundColor: colors.greenPressed },
   error: { color: colors.red, fontSize: fontSize.small },
   btn: {
     backgroundColor: colors.green,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     padding: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -256,6 +286,17 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: '#fff', fontWeight: '800' },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.blueSoft,
+  },
+  infoCopy: { flex: 1, gap: spacing.xs },
+  infoTitle: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '800' },
+  infoText: { color: colors.muted, fontSize: fontSize.tiny },
   // 扫码全屏
   scanRoot: { flex: 1, backgroundColor: '#000' },
   scanOverlay: {

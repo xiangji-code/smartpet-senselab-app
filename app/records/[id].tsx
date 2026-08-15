@@ -16,7 +16,7 @@ import {
 } from '../../src/api/records';
 import { formatExactByteSize } from '../../src/ble/pullPreview';
 import { PageBackButton } from '../../src/components/page-back-button';
-import { Screen } from '../../src/components/Screen';
+import { DesignScreen } from '../../src/components/design-screen';
 import { SectionCard } from '../../src/components/SectionCard';
 import { StatusPill } from '../../src/components/StatusPill';
 import { formatBeijingDateTime } from '../../src/lib/dateTime';
@@ -74,10 +74,10 @@ export default function RecordDetailScreen() {
   }, [recordId, reloadKey]);
 
   return (
-    <Screen
+    <DesignScreen
       title="记录详情"
-      subtitle="时间均为北京时间"
-      leading={<PageBackButton onPress={() => router.back()} />}
+      subtitle="查看顶圈上传的真实行为与运动数据"
+      leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
     >
       {record ? <RecordInfo record={record} /> : (
         <SectionCard title="记录信息">
@@ -86,7 +86,7 @@ export default function RecordDetailScreen() {
         </SectionCard>
       )}
 
-      <SectionCard title="蓝牙接收与文件">
+      <SectionCard title="上传批次与文件">
         {loading ? (
           <View style={styles.loading}>
             <ActivityIndicator color={colors.green} />
@@ -110,36 +110,42 @@ export default function RecordDetailScreen() {
           <Text style={styles.hint}>这条记录没有可关联的上传文件详情。</Text>
         )}
       </SectionCard>
-    </Screen>
+    </DesignScreen>
   );
 }
 
 function RecordInfo({ record }: { record: RecordItem }) {
   return (
-    <SectionCard
-      title="记录信息"
-      right={<StatusPill tone={TYPE_TONE[record.recordType]} label={TYPE_LABEL[record.recordType]} />}
-    >
-      <DetailRow label="记录编号" value={record.id} />
-      <DetailRow label="设备" value={record.deviceName} />
-      <DetailRow label="宠物" value={record.petName || '未关联'} />
-      <DetailRow
-        label="采集时间"
-        value={formatBeijingDateTime(record.occurredAt, { includeYear: true })}
-      />
-      <DetailRow label="摘要" value={record.summary} />
-      <DetailRow label="来源" value={record.source || '未知'} />
-      <DetailRow label="状态" value={record.status || '未知'} />
-      {record.barkCount != null ? (
-        <DetailRow label="吠叫次数" value={String(record.barkCount)} />
-      ) : null}
-      {record.durationSeconds != null ? (
-        <DetailRow label="时长" value={`${record.durationSeconds} 秒`} />
-      ) : null}
-      {record.confidence != null ? (
-        <DetailRow label="置信度" value={`${Math.round(record.confidence * 100)}%`} />
-      ) : null}
-    </SectionCard>
+    <>
+      <View style={styles.recordHeading}>
+        <Text selectable style={styles.recordId}>记录 #{record.id}</Text>
+        <StatusPill tone={TYPE_TONE[record.recordType]} label="真实同步" />
+      </View>
+      <View style={styles.hero}>
+        <Text style={styles.heroEyebrow}>{TYPE_LABEL[record.recordType]}记录</Text>
+        <Text style={styles.heroTitle}>{record.summary}</Text>
+        <View style={styles.heroMetrics}>
+          <Text selectable style={styles.heroValue}>
+            {record.barkCount != null ? `${record.barkCount} 次` : TYPE_LABEL[record.recordType]}
+            {record.durationSeconds != null ? ` · ${record.durationSeconds} 秒` : ''}
+          </Text>
+          {record.confidence != null ? (
+            <Text selectable style={styles.heroConfidence}>
+              置信度 {Math.round(record.confidence * 100)}%
+            </Text>
+          ) : null}
+        </View>
+      </View>
+      <SectionCard title="基础信息">
+        <DetailRow label="设备" value={record.deviceName} />
+        <DetailRow label="宠物" value={record.petName || '未关联'} />
+        <DetailRow
+          label="采集时间"
+          value={formatBeijingDateTime(record.occurredAt, { includeYear: true })}
+        />
+        <DetailRow label="来源 / 状态" value={`${record.source || '未知'} · ${record.status || '未知'}`} />
+      </SectionCard>
+    </>
   );
 }
 
@@ -221,6 +227,14 @@ function recordDetailError(cause: unknown): string {
 const styles = StyleSheet.create({
   buttonPressed: { opacity: 0.7 },
   details: { gap: spacing.md },
+  recordHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  recordId: { flex: 1, color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
+  hero: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.indigo },
+  heroEyebrow: { color: '#B9C8E8', fontSize: fontSize.small, fontWeight: '800' },
+  heroTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', lineHeight: 30 },
+  heroMetrics: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md },
+  heroValue: { flex: 1, color: '#FFFFFF', fontSize: 25, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  heroConfidence: { color: '#9FE1D8', fontSize: fontSize.small, fontWeight: '800' },
   row: {
     gap: spacing.xs,
     paddingBottom: spacing.sm,

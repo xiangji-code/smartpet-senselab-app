@@ -1,37 +1,53 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
+import { StyleSheet } from 'react-native';
 
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { colors, fontSize, spacing } from '../../src/theme/theme';
 
-/** 登录后底部 5 Tab：设备 / 绑定 / 记录 / 消息 / 我的 */
+/** 登录后底部 4 Tab：陪伴 / 记录 / 消息 / 我的；绑定从陪伴页进入。 */
 export default function TabsLayout() {
+  const { t } = useLanguage();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.greenDark,
+        tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: colors.muted,
+        tabBarActiveBackgroundColor: colors.indigo,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
           fontSize: fontSize.tiny,
           fontWeight: '700',
-          marginTop: spacing.xs,
+          marginTop: 2,
         },
-        tabBarItemStyle: { paddingTop: spacing.xs },
+        tabBarItemStyle: {
+          marginHorizontal: 5,
+          marginTop: 5,
+          marginBottom: 9,
+          paddingTop: 2,
+          borderRadius: 24,
+        },
         tabBarStyle: {
           backgroundColor: colors.panel,
           borderTopColor: colors.line,
-          borderTopWidth: 1,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          height: 72,
+          paddingHorizontal: 8,
+          paddingTop: 2,
+          paddingBottom: 6,
+          elevation: 0,
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: '设备',
+          title: t.devices,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? 'hardware-chip' : 'hardware-chip-outline'}
+              name={focused ? 'paw' : 'paw-outline'}
               color={color}
               size={size}
             />
@@ -41,7 +57,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="bind"
         options={{
-          title: '绑定',
+          title: t.bind,
+          href: null,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'qr-code' : 'qr-code-outline'}
@@ -54,7 +71,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="records"
         options={{
-          title: '记录',
+          title: t.records,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'list' : 'list-outline'}
@@ -67,7 +84,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="messages"
         options={{
-          title: '消息',
+          title: t.messages,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'notifications' : 'notifications-outline'}
@@ -80,7 +97,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="me"
         options={{
-          title: '我的',
+          title: t.me,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'person' : 'person-outline'}

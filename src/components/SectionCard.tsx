@@ -29,16 +29,16 @@ export function SectionCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.panel,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-    gap: spacing.md,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  title: { fontSize: fontSize.body, fontWeight: '800', color: colors.ink },
+  title: { fontSize: fontSize.body, fontWeight: '900', color: colors.indigo },
 });

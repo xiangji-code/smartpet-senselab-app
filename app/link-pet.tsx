@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
 import { ConfirmModal } from '../src/components/ConfirmModal';
+import { DesignScreen } from '../src/components/design-screen';
+import { PageBackButton } from '../src/components/page-back-button';
 import { SectionCard } from '../src/components/SectionCard';
 import { bindingsApi } from '../src/api/bindings';
 import { petsApi } from '../src/api/pets';
@@ -28,11 +29,18 @@ export default function LinkPetScreen() {
   const [pets, setPets] = useState<PetProfile[]>([]);
   const [binding, setBinding] = useState<DevicePetBinding | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PetProfile | null>(null);
 
   async function load() {
     setLoading(true);
+    setLoadError(null);
+    if (!Number.isInteger(id) || id <= 0) {
+      setLoadError('缺少有效的设备信息，请从设备页重新进入。');
+      setLoading(false);
+      return;
+    }
     try {
       const [d, ps, b] = await Promise.all([
         devicesApi.get(id),
@@ -42,6 +50,8 @@ export default function LinkPetScreen() {
       setDevice(d);
       setPets(ps);
       setBinding(b);
+    } catch {
+      setLoadError('关联信息加载失败，请返回设备页重试。');
     } finally {
       setLoading(false);
     }
@@ -89,10 +99,21 @@ export default function LinkPetScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: '关联宠物' }} />
-      <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <DesignScreen
+        title="关联宠物"
+        subtitle="一台设备同时关联一只宠物"
+        leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
+      >
         {loading ? (
           <ActivityIndicator color={colors.green} style={{ marginTop: spacing.xl }} />
+        ) : loadError ? (
+          <SectionCard title="无法加载关联信息">
+            <Text style={styles.meta}>{loadError}</Text>
+            <Pressable style={styles.emptyBtn} onPress={() => router.back()}>
+              <Text style={styles.emptyBtnText}>返回设备页</Text>
+            </Pressable>
+          </SectionCard>
         ) : (
           <>
             <SectionCard title={device?.deviceName || device?.deviceSn || '设备'}>
@@ -143,7 +164,11 @@ export default function LinkPetScreen() {
             )}
           </>
         )}
-      </ScrollView>
+        <Pressable style={styles.createButton} onPress={() => router.push(href('/pets/new'))}>
+          <Ionicons name="add" size={20} color={colors.indigo} />
+          <Text style={styles.createButtonText}>创建新的宠物档案</Text>
+        </Pressable>
+      </DesignScreen>
 
       <ConfirmModal
         visible={pending !== null}
@@ -158,8 +183,6 @@ export default function LinkPetScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, gap: spacing.md },
   meta: { fontSize: fontSize.small, color: colors.muted },
   hint: { fontSize: fontSize.small, color: colors.muted, marginTop: spacing.sm },
   unbindBtn: {
@@ -195,4 +218,16 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: fontSize.body, fontWeight: '800', color: colors.ink },
   link: { color: colors.greenDark, fontWeight: '800' },
+  createButton: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: radius.md,
+    backgroundColor: colors.panel,
+  },
+  createButtonText: { color: colors.indigo, fontWeight: '800' },
 });

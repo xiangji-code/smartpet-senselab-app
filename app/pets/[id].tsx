@@ -1,9 +1,11 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 
-import { PetForm } from '../../src/components/PetForm';
+import { PetForm, type PetFormInput } from '../../src/components/PetForm';
 import { ConfirmModal } from '../../src/components/ConfirmModal';
+import { DesignScreen } from '../../src/components/design-screen';
+import { PageBackButton } from '../../src/components/page-back-button';
 import { petsApi, type PetInput } from '../../src/api/pets';
 import { ApiError } from '../../src/api/client';
 import type { PetProfile } from '../../src/types/domain';
@@ -37,11 +39,12 @@ export default function EditPetScreen() {
     };
   }, [petId]);
 
-  async function save(input: PetInput) {
+  async function save(input: PetFormInput) {
     setSubmitting(true);
     setError(null);
     try {
       await petsApi.update(petId, input);
+      if (input.avatarFile) await petsApi.uploadAvatar(petId, input.avatarFile);
       router.back();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '保存失败，请稍后再试');
@@ -63,8 +66,12 @@ export default function EditPetScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: pet?.name ?? '宠物档案' }} />
-      <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <DesignScreen
+        title={pet?.name ?? '宠物档案'}
+        subtitle="编辑基础资料与档案状态"
+        leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
+      >
         {loading ? (
           <ActivityIndicator color={colors.green} style={{ marginTop: spacing.xl }} />
         ) : pet ? (
@@ -88,7 +95,7 @@ export default function EditPetScreen() {
         ) : (
           <Text style={styles.error}>{error ?? '未找到宠物档案'}</Text>
         )}
-      </ScrollView>
+      </DesignScreen>
 
       <ConfirmModal
         visible={confirmDeactivate}
@@ -104,8 +111,6 @@ export default function EditPetScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, gap: spacing.md },
   error: { color: colors.red, fontSize: fontSize.small },
   inactive: { color: colors.amber, fontSize: fontSize.small, fontWeight: '700' },
   deactivate: {

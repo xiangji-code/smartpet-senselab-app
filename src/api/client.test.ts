@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { api, ApiError, configureAuth } from './client';
+import { api, ApiError, authorizedMediaSource, configureAuth } from './client';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -16,6 +16,17 @@ describe('api client', () => {
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
     configureAuth(() => null, async () => null);
+  });
+
+  it('adds auth only to Backend media paths and never leaks it to external URLs', () => {
+    configureAuth(() => 'secret-access-token', async () => null);
+
+    expect(authorizedMediaSource('/api/app/pets/1/avatar')).toMatchObject({
+      headers: { Authorization: 'Bearer secret-access-token' },
+    });
+    expect(authorizedMediaSource('https://images.example/avatar.jpg')).toEqual({
+      uri: 'https://images.example/avatar.jpg',
+    });
   });
 
   it('parses FastAPI detail and error code', async () => {

@@ -30,7 +30,7 @@ export function PageHeader({
 
 const styles = StyleSheet.create({
   header: {
-    minHeight: 64,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -39,8 +39,8 @@ const styles = StyleSheet.create({
   copy: { flex: 1, minWidth: 0 },
   leading: { flexShrink: 0 },
   title: {
-    color: colors.ink,
-    fontSize: fontSize.header,
+    color: colors.indigo,
+    fontSize: 20,
     fontWeight: '800',
     letterSpacing: -0.4,
   },

@@ -1,8 +1,10 @@
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
-import { PetForm } from '../../src/components/PetForm';
+import { DesignScreen } from '../../src/components/design-screen';
+import { PageBackButton } from '../../src/components/page-back-button';
+import { PetForm, type PetFormInput } from '../../src/components/PetForm';
 import { petsApi, type PetInput } from '../../src/api/pets';
 import { ApiError } from '../../src/api/client';
 import { colors, fontSize, spacing } from '../../src/theme/theme';
@@ -12,11 +14,12 @@ export default function NewPetScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create(input: PetInput) {
+  async function create(input: PetFormInput) {
     setSubmitting(true);
     setError(null);
     try {
-      await petsApi.create(input);
+      const pet = await petsApi.create(input);
+      if (input.avatarFile) await petsApi.uploadAvatar(pet.id, input.avatarFile);
       router.back();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '创建失败，请稍后再试');
@@ -27,17 +30,19 @@ export default function NewPetScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: '新建宠物档案' }} />
-      <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <DesignScreen
+        title="新建宠物档案"
+        subtitle="用于关联设备并归档行为记录"
+        leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
+      >
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <PetForm submitLabel="创建" submitting={submitting} onSubmit={(i) => void create(i)} />
-      </ScrollView>
+      </DesignScreen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg, gap: spacing.md },
   error: { color: colors.red, fontSize: fontSize.small },
 });

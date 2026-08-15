@@ -8,13 +8,18 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 import { ConsentProvider } from '../src/consent/ConsentContext';
 import { PendingUploadProvider } from '../src/ble/PendingUploadContext';
 import { ForegroundBleSyncProvider } from '../src/ble/ForegroundBleSyncProvider';
+import { LaunchTransition } from '../src/components/launch-transition';
+import { LanguageProvider, useLanguage } from '../src/i18n/LanguageContext';
 import { colors, fontSize, radius, spacing } from '../src/theme/theme';
+
+void SplashScreen.preventAutoHideAsync();
 
 /**
  * 导航守卫：
@@ -48,13 +53,14 @@ function useProtectedRoute() {
 
 function RootNavigator() {
   const { isLoading, sessionRecoveryError, retrySession } = useAuth();
+  const { t } = useLanguage();
   useProtectedRoute();
 
   if (isLoading) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color={colors.green} size="large" />
-        <Text style={styles.loadingText}>正在恢复登录状态…</Text>
+        <Text style={styles.loadingText}>{t.restoringSession}</Text>
       </View>
     );
   }
@@ -63,18 +69,18 @@ function RootNavigator() {
     return (
       <View style={styles.recovery}>
         <View style={styles.recoveryCard}>
-          <Text style={styles.recoveryTitle}>暂时无法连接</Text>
+          <Text style={styles.recoveryTitle}>{t.connectionUnavailable}</Text>
           <Text style={styles.recoveryMessage}>{sessionRecoveryError}</Text>
           <Text style={styles.recoveryHint}>
-            不会退出账号或清除登录信息，请在网络恢复后重试。
+            {t.recoveryHint}
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="重新连接服务器"
+            accessibilityLabel={t.reconnect}
             style={styles.retryButton}
             onPress={() => void retrySession()}
           >
-            <Text style={styles.retryButtonText}>重新连接</Text>
+            <Text style={styles.retryButtonText}>{t.reconnect}</Text>
           </Pressable>
         </View>
       </View>
@@ -91,24 +97,40 @@ function RootNavigator() {
   );
 }
 
+function AppContent() {
+  const { isLoading } = useAuth();
+
+  return (
+    <View style={styles.app}>
+      <StatusBar style="light" />
+      <RootNavigator />
+      <LaunchTransition ready={!isLoading} />
+    </View>
+  );
+}
+
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <ConsentProvider>
-          <PendingUploadProvider>
-            <ForegroundBleSyncProvider>
-              <StatusBar style="dark" />
-              <RootNavigator />
-            </ForegroundBleSyncProvider>
-          </PendingUploadProvider>
-        </ConsentProvider>
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <ConsentProvider>
+            <PendingUploadProvider>
+              <ForegroundBleSyncProvider>
+                <AppContent />
+              </ForegroundBleSyncProvider>
+            </PendingUploadProvider>
+          </ConsentProvider>
+        </AuthProvider>
+      </LanguageProvider>
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  app: {
+    flex: 1,
+  },
   loading: {
     flex: 1,
     alignItems: 'center',

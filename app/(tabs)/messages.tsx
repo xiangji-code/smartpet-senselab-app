@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 import { ApiError } from '../../src/api/client';
 import { filterMessagePage, messagesApi } from '../../src/api/messages';
@@ -19,7 +20,6 @@ import { cacheKeys } from '../../src/cache/cachePolicy';
 import { appCache } from '../../src/cache/cacheStore';
 import { FeedbackState } from '../../src/components/feedback-state';
 import { InlineError } from '../../src/components/inline-error';
-import { PageHeader } from '../../src/components/page-header';
 import { href } from '../../src/lib/nav';
 import type { Message, MessageType } from '../../src/types/domain';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
@@ -238,33 +238,15 @@ export default function MessagesScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <PageHeader
-          title="消息"
-          subtitle={
-            messages.length === 0 && !loading
-              ? '暂无消息'
-              : unreadCount > 0
-                ? `${unreadCount} 条未读`
-                : '全部已读'
-          }
-          action={
-            unreadCount > 0 ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="全部标记为已读"
-                style={({ pressed }) => [
-                  styles.allReadButton,
-                  pressed && styles.allReadButtonPressed,
-                ]}
-                onPress={() => void markAllRead()}
-              >
-                <Text style={styles.allRead}>全部已读</Text>
-              </Pressable>
-            ) : null
-          }
-        />
-      </View>
+      <StatusBar style="dark" />
+      {unreadCount > 0 ? (
+        <View style={styles.messageToolbar}>
+          <Text style={styles.unreadSummary}>{unreadCount} 条未读消息</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="全部标记为已读" style={({ pressed }) => [styles.allReadButton, pressed && styles.allReadButtonPressed]} onPress={() => void markAllRead()}>
+            <Text numberOfLines={1} style={styles.allRead}>全部已读</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {error ? (
         <View style={styles.errorWrap}>
@@ -340,6 +322,7 @@ function MessageCard({
   onPress: () => void;
 }) {
   const isUnread = message.readAt == null;
+  const accent = message.type === 'bark' ? colors.red : message.type === 'device' ? colors.amber : colors.blue;
   return (
     <Pressable
       accessibilityRole="button"
@@ -352,8 +335,8 @@ function MessageCard({
       ]}
       onPress={onPress}
     >
-      <View style={styles.iconWrap}>
-        <Ionicons name={ICON[message.type]} size={20} color={colors.greenDark} />
+      <View style={[styles.iconWrap, { backgroundColor: `${accent}18` }]}>
+        <Ionicons name={ICON[message.type]} size={20} color={accent} />
       </View>
       <View style={styles.cardBody}>
         <View style={styles.cardTop}>
@@ -391,16 +374,17 @@ function formatTime(iso: string): string {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: spacing.lg },
+  messageToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: spacing.lg, marginTop: spacing.sm },
+  unreadSummary: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '800' },
   allReadButton: {
-    minHeight: 44,
+    minHeight: 36,
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.pill,
     backgroundColor: colors.mint,
   },
   allReadButtonPressed: { backgroundColor: colors.soft },
-  allRead: { color: colors.greenDark, fontWeight: '800', fontSize: fontSize.small },
+  allRead: { color: colors.greenDark, fontWeight: '800', fontSize: fontSize.tiny },
   errorWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   content: { padding: spacing.lg, gap: spacing.md },
   contentEmpty: { flexGrow: 1, justifyContent: 'center' },
@@ -409,12 +393,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.md,
     backgroundColor: colors.panel,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
     borderRadius: radius.md,
-    padding: spacing.lg,
+    padding: spacing.md,
   },
-  cardUnread: { borderColor: '#b9dbce', backgroundColor: colors.surfaceAlt },
+  cardUnread: { borderColor: '#B9C6E5', backgroundColor: colors.panel },
   cardPressed: { backgroundColor: colors.soft },
   cardBody: { flex: 1 },
   iconWrap: {
@@ -423,10 +407,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.mint,
   },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  msgTitle: { flexShrink: 1, fontSize: fontSize.body, fontWeight: '800', color: colors.ink },
+  msgTitle: { flexShrink: 1, fontSize: fontSize.body, fontWeight: '900', color: colors.ink },
   newBadge: {
     backgroundColor: colors.red,
     borderRadius: radius.pill,
@@ -434,7 +417,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   newText: { color: '#fff', fontSize: fontSize.tiny, fontWeight: '800' },
-  tag: { fontSize: fontSize.tiny, color: colors.greenDark, marginTop: 2, fontWeight: '700' },
+  tag: { fontSize: fontSize.tiny, color: colors.muted, marginTop: 2, fontWeight: '700' },
   body: { fontSize: fontSize.small, color: colors.muted, marginTop: spacing.xs, lineHeight: 20 },
   time: { fontSize: fontSize.tiny, color: colors.muted, marginTop: spacing.xs },
   footer: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md },

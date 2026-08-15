@@ -13,8 +13,8 @@ import {
 import { clearBleTransferDiagnostics } from '../src/ble/transferDiagnostics';
 import { appCache, type CacheStats } from '../src/cache/cacheStore';
 import { ConfirmModal } from '../src/components/ConfirmModal';
+import { DesignScreen } from '../src/components/design-screen';
 import { PageBackButton } from '../src/components/page-back-button';
-import { Screen } from '../src/components/Screen';
 import { SectionCard } from '../src/components/SectionCard';
 import { useConsent } from '../src/consent/ConsentContext';
 import { colors, fontSize, radius, spacing } from '../src/theme/theme';
@@ -146,10 +146,10 @@ export default function StorageCacheScreen() {
     .join('');
 
   return (
-    <Screen
+    <DesignScreen
       title="存储与缓存"
-      subtitle="管理离线数据与本机空间"
-      leading={<PageBackButton onPress={() => router.back()} />}
+      subtitle="管理本机数据、隐私授权和帮助入口"
+      leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
     >
       <View style={styles.summary}>
         <View style={styles.summaryIcon}>
@@ -257,6 +257,37 @@ export default function StorageCacheScreen() {
         )}
       </Pressable>
 
+      <SectionCard title="相关设置">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="前往隐私数据授权设置"
+          style={({ pressed }) => [styles.relatedRow, pressed && styles.buttonPressed]}
+          onPress={() => router.push('/(tabs)/me')}
+        >
+          <View style={styles.smallIcon}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.greenDark} />
+          </View>
+          <View style={styles.relatedCopy}>
+            <Text style={styles.selectionTitle}>隐私数据授权</Text>
+            <Text style={styles.selectionDescription}>在“我的”中管理声音、行为和状态数据授权</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+        </Pressable>
+        <View style={styles.divider} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="前往帮助与设备连接指南"
+          style={({ pressed }) => [styles.relatedRow, pressed && styles.buttonPressed]}
+          onPress={() => router.push('/(tabs)/me')}
+        >
+          <View style={styles.smallIcon}>
+            <Ionicons name="help-circle-outline" size={18} color={colors.greenDark} />
+          </View>
+          <Text style={styles.infoTitle}>帮助与设备连接指南</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+        </Pressable>
+      </SectionCard>
+
       <ConfirmModal
         visible={confirmClear}
         title={selection.loginSession ? '清除所选内容并退出？' : '清除所选内容？'}
@@ -266,7 +297,7 @@ export default function StorageCacheScreen() {
         onConfirm={() => void clearSelectedContent()}
         onCancel={() => setConfirmClear(false)}
       />
-    </Screen>
+    </DesignScreen>
   );
 }
 
@@ -336,7 +367,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     borderRadius: radius.md,
-    backgroundColor: colors.greenDark,
+    backgroundColor: colors.indigo,
   },
   summaryIcon: {
     width: 48,
@@ -347,10 +378,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#dff5eb',
   },
   summaryBody: { flex: 1 },
-  eyebrow: { color: '#cbe9de', fontSize: fontSize.tiny, fontWeight: '800' },
+  eyebrow: { color: '#B9C8E8', fontSize: fontSize.tiny, fontWeight: '800' },
   totalSize: { color: '#fff', fontSize: 30, fontWeight: '900', marginVertical: 2 },
   loader: { alignSelf: 'flex-start', marginVertical: spacing.sm },
-  meta: { color: '#e4f5ee', fontSize: fontSize.small, lineHeight: 19 },
+  meta: { color: '#D6DDF1', fontSize: fontSize.small, lineHeight: 19 },
   error: {
     color: colors.red,
     fontSize: fontSize.small,
@@ -394,9 +425,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.red,
   },
   disabled: { opacity: 0.55 },
   clearText: { color: '#fff', fontSize: fontSize.body, fontWeight: '800' },
+  relatedRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  relatedCopy: { flex: 1, gap: 2 },
 });

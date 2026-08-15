@@ -3,9 +3,10 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Screen } from '../src/components/Screen';
+import { DesignScreen } from '../src/components/design-screen';
 import { BleReceivePreviewCard } from '../src/components/BleReceivePreviewCard';
 import { ConfirmModal } from '../src/components/ConfirmModal';
+import { PageBackButton } from '../src/components/page-back-button';
 import { SectionCard } from '../src/components/SectionCard';
 import { StatusPill } from '../src/components/StatusPill';
 import { detectDeviceType, devicesApi } from '../src/api/devices';
@@ -232,10 +233,11 @@ export default function ConnectionSetupScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: true, title: '连接设置' }} />
-      <Screen
-        title={bindingConfirmed ? '设备连接完成' : '连接并验证设备'}
-        subtitle={bindingConfirmed ? '设备已归属当前账号，可正常使用' : '连接到设备蓝牙后，才会完成账号绑定'}
+      <Stack.Screen options={{ headerShown: false }} />
+      <DesignScreen
+        title="连接设置"
+        subtitle={bindingConfirmed ? '设备已归属当前账号，可正常使用' : '验证设备并同步本地缓存数据'}
+        leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
       >
         <SectionCard>
           <View style={styles.row}>
@@ -413,7 +415,7 @@ export default function ConnectionSetupScreen() {
           onConfirm={() => void cancelPendingVerification()}
           onCancel={() => setCancelConfirmVisible(false)}
         />
-      </Screen>
+      </DesignScreen>
     </>
   );
 }

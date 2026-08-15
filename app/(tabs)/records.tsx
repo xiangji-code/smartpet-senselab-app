@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 import { ApiError } from '../../src/api/client';
 import { recordsApi, type RecordItem } from '../../src/api/records';
@@ -21,7 +22,6 @@ import { cacheKeys } from '../../src/cache/cachePolicy';
 import { appCache } from '../../src/cache/cacheStore';
 import { FeedbackState } from '../../src/components/feedback-state';
 import { InlineError } from '../../src/components/inline-error';
-import { PageHeader } from '../../src/components/page-header';
 import { StatusPill } from '../../src/components/StatusPill';
 import { useDevicesWithPets } from '../../src/hooks/useDevicesWithPets';
 import { formatBeijingDateTime } from '../../src/lib/dateTime';
@@ -216,11 +216,33 @@ export default function RecordsScreen() {
 
   const unavailableType = type === 'imu' ? 'IMU' : type === 'motion' ? '运动' : null;
   const visibleError = error ?? metadataError;
+  const chartValues = useMemo(() => {
+    const values = Array.from({ length: 7 }, () => 0);
+    records.forEach((item) => {
+      const date = new Date(item.occurredAt);
+      if (!Number.isNaN(date.getTime())) values[date.getDay()] += item.recordType === 'bark' ? item.barkCount ?? 1 : 1;
+    });
+    return values;
+  }, [records]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <PageHeader title="数据记录" />
+      <StatusBar style="dark" />
+
+      <View style={styles.dashboard}>
+        <View style={styles.chartCard}>
+          <View style={styles.chartHeader}>
+            <View><Text style={styles.chartTitle}>近期行为</Text><Text style={styles.chartMeta}>按星期汇总当前真实记录</Text></View>
+            <View style={styles.totalBadge}><Text style={styles.totalBadgeText}>{total}</Text></View>
+          </View>
+          <View style={styles.barChart}>
+            {chartValues.map((value, index) => {
+              const max = Math.max(1, ...chartValues);
+              const hasValue = value > 0;
+              return <View key={index} style={styles.barColumn}><View style={[styles.bar, !hasValue && styles.barEmpty, { height: hasValue ? 18 + (value / max) * 52 : 2 }]} /><Text style={styles.barLabel}>{['日','一','二','三','四','五','六'][index]}</Text></View>;
+            })}
+          </View>
+        </View>
       </View>
 
       <View style={styles.filters}>
@@ -460,16 +482,62 @@ function recordErrorMessage(cause: unknown): string {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: spacing.lg },
+  dashboard: { padding: spacing.lg, paddingBottom: 0 },
+  chartCard: { padding: spacing.md, gap: spacing.sm, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, backgroundColor: colors.panel },
+  chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  chartTitle: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
+  chartMeta: { color: colors.muted, fontSize: fontSize.tiny, marginTop: 2 },
+  totalBadge: { minWidth: 42, height: 42, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.mint },
+  totalBadgeText: { color: colors.greenDark, fontWeight: '900' },
+  barChart: { height: 82, flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  barColumn: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  bar: { width: '64%', minHeight: 18, borderRadius: 4, backgroundColor: colors.green },
+  barEmpty: { minHeight: 0, backgroundColor: colors.line },
+  barLabel: { color: colors.muted, fontSize: 10 },
+  summaryRow: { flexDirection: 'row', gap: spacing.md },
+  summaryCard: { flex: 1, minHeight: 92, alignItems: 'center', justifyContent: 'center', gap: 2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, backgroundColor: colors.blueSoft },
+  summaryValue: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
+  summaryLabel: { color: colors.muted, fontSize: fontSize.tiny },
   filters: {
     gap: spacing.md,
     marginHorizontal: spacing.lg,
     padding: spacing.md,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.panel,
   },
+  insightStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.indigo,
+  },
+  insightIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: '#fff',
+  },
+  insightCopy: { flex: 1 },
+  insightValue: { color: '#fff', fontSize: fontSize.header, fontWeight: '900' },
+  insightLabel: { color: '#D9DFF2', fontSize: fontSize.tiny },
+  insightTrust: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: '#fff',
+  },
+  insightTrustText: { color: colors.greenDark, fontSize: fontSize.tiny, fontWeight: '800' },
   filterSection: { gap: spacing.xs },
   filterGrid: { gap: spacing.md },
   filterGroup: { gap: spacing.xs },
@@ -477,16 +545,16 @@ const styles = StyleSheet.create({
   horizontalChips: { gap: spacing.sm },
   wrapChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
-    minHeight: 44,
+    minHeight: 34,
     maxWidth: 168,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.soft,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
   },
-  chipActive: { backgroundColor: colors.green },
+  chipActive: { backgroundColor: colors.indigo },
   chipText: { fontSize: fontSize.small, color: colors.muted, fontWeight: '700' },
   chipTextActive: { color: '#fff' },
   errorWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
@@ -494,16 +562,16 @@ const styles = StyleSheet.create({
   contentEmpty: { flexGrow: 1, justifyContent: 'center' },
   card: {
     backgroundColor: colors.panel,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     gap: spacing.xs,
   },
   cardPressed: { backgroundColor: colors.soft },
   cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   time: { fontSize: fontSize.tiny, color: colors.muted },
-  summary: { fontSize: fontSize.body, fontWeight: '700', color: colors.ink },
+  summary: { fontSize: fontSize.body, fontWeight: '800', color: colors.indigo },
   detail: { fontSize: fontSize.small, color: colors.muted },
   cardBottom: {
     flexDirection: 'row',

@@ -137,7 +137,14 @@ export default function DeviceDetailScreen() {
   return (
     <>
       <Stack.Screen
-        options={{ headerShown: true, title: device.deviceName || deviceTypeLabel(device.deviceType) }}
+        options={{
+          headerShown: true,
+          title: device.deviceType === 'trainer' ? '训狗器遥控器' : device.deviceName || deviceTypeLabel(device.deviceType),
+          headerStyle: { backgroundColor: colors.indigo },
+          headerTintColor: '#FFFFFF',
+          headerTitleAlign: 'center',
+          headerShadowVisible: false,
+        }}
       />
       <ScrollView style={styles.root} contentContainerStyle={styles.content}>
         <SectionCard>
@@ -224,10 +231,10 @@ function TrainerControls({ device }: { device: Device }) {
     key: string;
     phase: TrainerCommandPhase;
   } | null>(null);
-  const [confirmShock, setConfirmShock] = useState(false);
   const [soundIntensity, setSoundIntensity] = useState(4);
   const [vibrationIntensity, setVibrationIntensity] = useState(8);
   const [shockIntensity, setShockIntensity] = useState(20);
+  const [selectedCommand, setSelectedCommand] = useState<TrainerCommand>('shock');
 
   async function send(kind: TrainerCommand, enabled: boolean) {
     const label = trainerCommandLabel(kind);
@@ -276,81 +283,67 @@ function TrainerControls({ device }: { device: Device }) {
     }
   }
 
+  const selectedIntensity = selectedCommand === 'sound' ? soundIntensity : selectedCommand === 'vibration' ? vibrationIntensity : selectedCommand === 'shock' ? shockIntensity : 0;
+  const selectedMax = selectedCommand === 'sound' ? 8 : selectedCommand === 'vibration' ? 16 : selectedCommand === 'shock' ? 99 : 0;
+  const changeSelectedIntensity = (delta: number) => {
+    if (selectedCommand === 'sound') setSoundIntensity((value) => Math.max(1, Math.min(8, value + delta)));
+    if (selectedCommand === 'vibration') setVibrationIntensity((value) => Math.max(1, Math.min(16, value + delta)));
+    if (selectedCommand === 'shock') setShockIntensity((value) => Math.max(1, Math.min(99, value + delta * 5)));
+  };
+
   return (
     <>
-      <SectionCard title="训狗控制">
-        <Text style={styles.meta}>
-          BLE V2 指令携带强度档位；App 收到设备确认响应后才显示执行成功。
-        </Text>
+      <SectionCard title="遥控器" right={<View style={styles.safetyPill}><Ionicons name="shield-checkmark" size={14} color={colors.greenDark} /><Text style={styles.safetyPillText}>安全回执</Text></View>}>
+        <View style={styles.commandGrid}>
+          <RemoteMode icon="flash-outline" label="电击" danger active={selectedCommand === 'shock'} onPress={() => setSelectedCommand('shock')} />
+          <RemoteMode icon="volume-high-outline" label="声音" active={selectedCommand === 'sound'} onPress={() => setSelectedCommand('sound')} />
+          <RemoteMode icon="phone-portrait-outline" label="震动" active={selectedCommand === 'vibration'} onPress={() => setSelectedCommand('vibration')} />
+          <RemoteMode icon="flashlight-outline" label="灯光" active={selectedCommand === 'light'} onPress={() => setSelectedCommand('light')} />
+        </View>
 
-        <TrainerActionBlock
-          label="声音"
-          kind="sound"
-          color={colors.blue}
-          sending={sending}
-          intensity={soundIntensity}
-          maxIntensity={8}
-          onIntensityChange={setSoundIntensity}
-          onStart={() => void send('sound', true)}
-          onStop={() => void send('sound', false)}
-        />
-        <TrainerActionBlock
-          label="震动"
-          kind="vibration"
-          color={colors.amber}
-          sending={sending}
-          intensity={vibrationIntensity}
-          maxIntensity={16}
-          onIntensityChange={setVibrationIntensity}
-          onStart={() => void send('vibration', true)}
-          onStop={() => void send('vibration', false)}
-        />
-        <TrainerActionBlock
-          label="电击"
-          kind="shock"
-          color={colors.red}
-          sending={sending}
-          requiresConfirmation
-          intensity={shockIntensity}
-          maxIntensity={99}
-          onIntensityChange={setShockIntensity}
-          onStart={() => setConfirmShock(true)}
-          onStop={() => void send('shock', false)}
-        />
-        <TrainerActionBlock
-          label="灯光"
-          kind="light"
-          color={colors.green}
-          sending={sending}
-          onStart={() => void send('light', true)}
-          onStop={() => void send('light', false)}
-        />
+        <View style={styles.remoteDialArea}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`发送${trainerCommandLabel(selectedCommand)}指令`}
+            accessibilityHint="点击后立即发送并等待设备回执"
+            accessibilityState={{ disabled: sending !== null, busy: sending !== null }}
+            disabled={sending !== null}
+            style={({ pressed }) => [styles.remoteDial, selectedCommand === 'shock' && styles.remoteDialDanger, pressed && styles.remoteDialPressed, sending && styles.btnMuted]}
+            onPress={() => void send(selectedCommand, true)}
+          >
+            <View style={[styles.remoteDialInner, selectedCommand === 'shock' && styles.remoteDialInnerDanger]}>
+              {sending ? <ActivityIndicator color={selectedCommand === 'shock' ? colors.red : colors.greenDark} /> : <Text style={[styles.remoteDialLabel, selectedCommand === 'shock' && styles.remoteDialLabelDanger]}>{trainerCommandLabel(selectedCommand)}</Text>}
+              <Text style={styles.remoteDialValue}>{sending ? trainerCommandPhaseLabel(sending.phase) : selectedCommand === 'light' ? '点击触发' : `${selectedIntensity} / ${selectedMax}`}</Text>
+            </View>
+          </Pressable>
+          {selectedCommand !== 'light' ? <View style={styles.dialStepper}>
+            <Pressable accessibilityRole="button" style={styles.dialStepButton} onPress={() => changeSelectedIntensity(-1)}><Text style={styles.dialStepText}>−</Text></Pressable>
+            <Text style={styles.dialHint}>强度</Text>
+            <Pressable accessibilityRole="button" style={styles.dialStepButton} onPress={() => changeSelectedIntensity(1)}><Text style={styles.dialStepText}>+</Text></Pressable>
+          </View> : null}
+        </View>
 
-        {feedback ? <Text style={styles.feedback}>{feedback}</Text> : null}
+        <Text style={styles.dialInstruction}>选择指令和强度后，点击圆形区域立即发送</Text>
       </SectionCard>
 
-      <ConfirmModal
-        visible={confirmShock}
-        title="确认启动电击"
-        message={`将以 ${shockIntensity}/99 档启动电击。电击为强刺激，请确认当前操作对宠物是必要且安全的。`}
-        confirmText="确认启动"
-        destructive
-        onConfirm={() => {
-          setConfirmShock(false);
-          void send('shock', true);
-        }}
-        onCancel={() => setConfirmShock(false)}
-      />
+      {feedback ? (
+        <View accessibilityLiveRegion="polite" style={styles.commandFeedback}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.greenDark} />
+          <Text style={styles.commandFeedbackText}>{feedback}</Text>
+        </View>
+      ) : null}
     </>
   );
 }
 
 function TrainerActionBlock({
   label,
+  description,
+  icon,
   kind,
   color,
   sending,
-  requiresConfirmation = false,
+  danger = false,
   intensity,
   maxIntensity,
   onIntensityChange,
@@ -358,10 +351,12 @@ function TrainerActionBlock({
   onStop,
 }: {
   label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
   kind: TrainerCommand;
   color: string;
   sending: { key: string; phase: TrainerCommandPhase } | null;
-  requiresConfirmation?: boolean;
+  danger?: boolean;
   intensity?: number;
   maxIntensity?: number;
   onIntensityChange?: (value: number) => void;
@@ -373,13 +368,19 @@ function TrainerActionBlock({
   const stopping = sending?.key === `${kind}-off`;
   const phaseLabel = sending ? trainerCommandPhaseLabel(sending.phase) : '';
   return (
-    <View style={styles.controlBlock}>
+    <View style={[styles.remoteControl, danger && styles.remoteControlDanger]}>
       <View style={styles.controlHeader}>
-        <Text style={styles.controlLabel}>{label}</Text>
-        {requiresConfirmation ? (
-          <View style={styles.warnTag}>
-            <Ionicons name="warning-outline" size={12} color={colors.red} />
-            <Text style={styles.warnText}>启动需确认</Text>
+        <View style={[styles.controlIcon, { backgroundColor: `${color}18` }]}>
+          <Ionicons name={icon} size={22} color={color} />
+        </View>
+        <View style={styles.remoteIntroCopy}>
+          <Text style={[styles.controlLabel, danger && styles.controlLabelDanger]}>{label}</Text>
+          <Text style={styles.controlDescription}>{description}</Text>
+        </View>
+        {intensity !== undefined && maxIntensity ? (
+          <View style={[styles.intensityBadge, danger && styles.intensityBadgeDanger]}>
+            <Text style={[styles.intensityBadgeValue, danger && styles.controlLabelDanger]}>{intensity}</Text>
+            <Text style={styles.intensityBadgeMax}>/{maxIntensity}</Text>
           </View>
         ) : null}
       </View>
@@ -393,11 +394,17 @@ function TrainerActionBlock({
       ) : null}
       <View style={styles.trainerActions}>
         <Pressable
-          style={[styles.trainerActionBtn, { backgroundColor: color }, disabled && styles.btnMuted]}
+          style={({ pressed }) => [
+            styles.trainerActionBtn,
+            { backgroundColor: color },
+            pressed && styles.trainerActionPressed,
+            disabled && styles.btnMuted,
+          ]}
           disabled={disabled}
           onPress={onStart}
           accessibilityRole="button"
           accessibilityLabel={`启动${label}`}
+          accessibilityHint={danger ? '打开安全确认后发送指令' : '发送指令并等待设备确认'}
           accessibilityState={{ disabled, busy: starting }}
         >
           {starting ? (
@@ -417,7 +424,12 @@ function TrainerActionBlock({
           )}
         </Pressable>
         <Pressable
-          style={[styles.trainerActionBtn, styles.trainerStopBtn, disabled && styles.btnMuted]}
+          style={({ pressed }) => [
+            styles.trainerActionBtn,
+            styles.trainerStopBtn,
+            pressed && styles.trainerStopPressed,
+            disabled && styles.btnMuted,
+          ]}
           disabled={disabled}
           onPress={onStop}
           accessibilityRole="button"
@@ -445,6 +457,11 @@ function TrainerActionBlock({
   );
 }
 
+function RemoteMode({ icon, label, active, danger = false, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; active: boolean; danger?: boolean; onPress: () => void }) {
+  const foreground = danger ? '#FFFFFF' : active ? '#FFFFFF' : colors.greenDark;
+  return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} style={[styles.remoteMode, danger && styles.remoteModeDanger, active && !danger && styles.remoteModeActive]} onPress={onPress}><Ionicons name={icon} size={23} color={foreground} /><Text style={[styles.remoteModeText, (active || danger) && styles.remoteModeTextActive]}>{label}</Text></Pressable>;
+}
+
 function IntensityControl({
   value,
   max,
@@ -458,25 +475,36 @@ function IntensityControl({
 }) {
   const step = max >= 99 ? 5 : 1;
   return (
-    <View style={styles.intensityRow}>
-      <Text style={styles.meta}>强度</Text>
+    <View style={styles.intensityPanel}>
+      <View style={styles.intensityLabelRow}>
+        <Text style={styles.intensityLabel}>强度</Text>
+        <View style={styles.intensityTrack}>
+          <View style={[styles.intensityFill, { width: `${Math.max(4, (value / max) * 100)}%` }]} />
+        </View>
+      </View>
+      <View style={styles.intensityActions}>
       <Pressable
         accessibilityLabel="降低强度"
+        accessibilityRole="button"
         disabled={disabled || value <= 1}
         style={[styles.intensityButton, (disabled || value <= 1) && styles.btnMuted]}
         onPress={() => onChange(Math.max(1, value - step))}
       >
         <Text style={styles.intensityButtonText}>−</Text>
       </Pressable>
-      <Text style={styles.intensityValue}>{value} / {max}</Text>
+      <Text accessibilityLabel={`当前强度 ${value}，最高 ${max}`} style={styles.intensityValue}>
+        {value} / {max}
+      </Text>
       <Pressable
         accessibilityLabel="提高强度"
+        accessibilityRole="button"
         disabled={disabled || value >= max}
         style={[styles.intensityButton, (disabled || value >= max) && styles.btnMuted]}
         onPress={() => onChange(Math.min(max, value + step))}
       >
         <Text style={styles.intensityButtonText}>＋</Text>
       </Pressable>
+      </View>
     </View>
   );
 }
@@ -828,37 +856,174 @@ const styles = StyleSheet.create({
   link: { color: colors.greenDark, fontWeight: '800' },
   btnMuted: { opacity: 0.5 },
   controlBlock: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.md },
+  commandGrid: { flexDirection: 'row', gap: spacing.sm },
+  remoteMode: { flex: 1, minHeight: 70, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.mint },
+  remoteModeActive: { backgroundColor: colors.green },
+  remoteModeDanger: { backgroundColor: colors.red },
+  remoteModeText: { color: colors.greenDark, fontSize: fontSize.small, fontWeight: '800' },
+  remoteModeTextActive: { color: '#FFFFFF' },
+  remoteDialArea: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
+  remoteDial: { width: 164, height: 164, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 16, borderColor: colors.green, borderRightColor: colors.line, backgroundColor: colors.panel },
+  remoteDialDanger: { borderColor: colors.red, borderRightColor: '#F3C4BF' },
+  remoteDialPressed: { transform: [{ scale: 0.97 }], opacity: 0.86 },
+  remoteDialInner: { width: 112, height: 112, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt },
+  remoteDialInnerDanger: { backgroundColor: colors.dangerSurface },
+  remoteDialLabel: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
+  remoteDialLabelDanger: { color: colors.red },
+  remoteDialValue: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  dialInstruction: { color: colors.muted, fontSize: fontSize.tiny, textAlign: 'center' },
+  dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dialStepButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.soft },
+  dialStepText: { color: colors.indigo, fontSize: 24, fontWeight: '800' },
+  dialHint: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  remotePrimary: { flex: 1, minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.green },
+  remotePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
+  remoteStop: { flex: 1, minHeight: 50, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.sm, backgroundColor: colors.panel },
+  remoteStopText: { color: colors.ink, fontWeight: '800' },
+  designDangerButton: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.sm, backgroundColor: colors.red },
+  designDangerTitle: { color: '#FFFFFF', fontSize: fontSize.body, fontWeight: '900' },
+  designDangerCaption: { color: '#FFE2DF', fontSize: fontSize.tiny, marginTop: 2 },
+  safetyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.mint,
+  },
+  safetyPillText: { color: colors.greenDark, fontSize: fontSize.tiny, fontWeight: '800' },
+  remoteIntro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.indigoSoft,
+  },
+  remoteIntroIcon: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.pill,
+    backgroundColor: colors.panel,
+  },
+  remoteIntroCopy: { flex: 1, minWidth: 0 },
+  remoteIntroTitle: { color: colors.indigo, fontSize: fontSize.body, fontWeight: '800' },
+  remoteControl: {
+    gap: spacing.md,
+    padding: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  remoteControlDanger: { borderColor: '#F2B5B0', backgroundColor: colors.dangerSurface },
   trainerActions: { flexDirection: 'row', gap: spacing.sm },
-  intensityRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  intensityPanel: { gap: spacing.sm },
+  intensityLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  intensityLabel: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
+  intensityTrack: {
+    flex: 1,
+    height: 6,
+    overflow: 'hidden',
+    borderRadius: radius.pill,
+    backgroundColor: colors.line,
+  },
+  intensityFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.green },
+  intensityActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   intensityButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.sm,
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.soft,
     borderWidth: 1,
     borderColor: colors.line,
   },
-  intensityButtonText: { color: colors.ink, fontSize: fontSize.body, fontWeight: '800' },
+  intensityButtonText: { color: colors.indigo, fontSize: 22, fontWeight: '700' },
   intensityValue: {
-    minWidth: 64,
+    minWidth: 80,
     textAlign: 'center',
-    color: colors.ink,
-    fontWeight: '800',
+    color: colors.indigo,
+    fontSize: fontSize.title,
+    fontWeight: '900',
     fontVariant: ['tabular-nums'],
   },
-  trainerActionBtn: { flex: 1, borderRadius: radius.sm, padding: spacing.md, alignItems: 'center' },
+  intensityBadge: {
+    minWidth: 58,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.blueSoft,
+  },
+  intensityBadgeDanger: { backgroundColor: '#FFD9D5' },
+  intensityBadgeValue: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
+  intensityBadgeMax: { color: colors.muted, fontSize: fontSize.tiny, fontWeight: '700' },
+  trainerActionBtn: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trainerActionPressed: { opacity: 0.82 },
   trainerActionProgress: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs },
-  trainerStopBtn: { backgroundColor: colors.soft, borderWidth: 1, borderColor: colors.line },
+  trainerStopBtn: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.lineStrong },
+  trainerStopPressed: { backgroundColor: colors.soft },
   trainerStopText: { color: colors.ink, fontWeight: '800' },
-  controlHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  controlLabel: { fontSize: fontSize.body, fontWeight: '800', color: colors.ink },
+  controlHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  controlIcon: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+  },
+  controlLabel: { fontSize: fontSize.title, fontWeight: '800', color: colors.indigo },
+  controlLabelDanger: { color: colors.red },
+  controlDescription: { marginTop: 2, color: colors.muted, fontSize: fontSize.small },
   warnTag: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: '#fdeceb', paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill },
   warnText: { color: colors.red, fontSize: fontSize.tiny, fontWeight: '700' },
   sendBtn: { backgroundColor: colors.green, borderRadius: radius.sm, padding: spacing.md, alignItems: 'center' },
   sendText: { color: '#fff', fontWeight: '800' },
   feedback: { color: colors.greenDark, fontSize: fontSize.small, fontWeight: '700' },
+  dangerPanel: {
+    padding: spacing.lg,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: '#F2B5B0',
+    borderRadius: radius.lg,
+    backgroundColor: colors.dangerSurface,
+  },
+  dangerHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  dangerIcon: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.pill,
+    backgroundColor: '#FFD9D5',
+  },
+  dangerTitle: { color: colors.red, fontSize: fontSize.body, fontWeight: '900' },
+  dangerDescription: { marginTop: 2, color: colors.muted, fontSize: fontSize.small, lineHeight: 19 },
+  commandFeedback: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#B8DCD5',
+    borderRadius: radius.md,
+    backgroundColor: colors.mint,
+  },
+  commandFeedbackText: { flex: 1, color: colors.greenDark, fontSize: fontSize.small, fontWeight: '700' },
   errorText: { color: colors.red, fontSize: fontSize.small, fontWeight: '700' },
   verifyBtn: {
     flexDirection: 'row',

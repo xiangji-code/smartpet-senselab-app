@@ -4,29 +4,32 @@
  */
 
 export const colors = {
-  bg: '#f4f7f5',
-  panel: '#ffffff',
-  surfaceAlt: '#f8fbf9',
-  ink: '#16231f',
-  muted: '#607169',
-  line: '#dbe6e1',
-  lineStrong: '#c7d8d0',
-  green: '#2f9b74',
-  greenDark: '#1f7658',
-  greenPressed: '#196248',
-  mint: '#e4f5ee',
-  blue: '#3478f6',
-  amber: '#f2a93b',
-  red: '#e6655a',
-  dangerSurface: '#fff3f1',
-  warningSurface: '#fff8e8',
-  soft: '#eef5f2',
+  bg: '#F7F5EF',
+  panel: '#FFFFFF',
+  surfaceAlt: '#FBFAF7',
+  ink: '#20262E',
+  muted: '#66717F',
+  line: '#E2E5E8',
+  lineStrong: '#C9D0D7',
+  indigo: '#101B4D',
+  indigoSoft: '#E9ECF5',
+  green: '#2F8F83',
+  greenDark: '#236F67',
+  greenPressed: '#1C5C55',
+  mint: '#E5F3F0',
+  blue: '#527FA3',
+  blueSoft: '#E8F0F8',
+  amber: '#E08A1E',
+  red: '#F04438',
+  dangerSurface: '#FFF0EE',
+  warningSurface: '#FFF5E5',
+  soft: '#F0F2F2',
 } as const;
 
 export const radius = {
   sm: 10,
-  md: 16,
-  lg: 24,
+  md: 14,
+  lg: 18,
   pill: 999,
 } as const;
 
@@ -43,8 +46,8 @@ export const fontSize = {
   tiny: 12,
   small: 13,
   body: 15,
-  title: 20,
-  header: 28,
+  title: 18,
+  header: 24,
 } as const;
 
 export const theme = { colors, radius, spacing, fontSize } as const;

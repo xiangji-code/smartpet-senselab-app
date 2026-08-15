@@ -64,6 +64,16 @@ export function configureAuth(provider: TokenProvider, refresh: RefreshHandler) 
   refreshPromise = null;
 }
 
+/** Build an Image-compatible source without leaking App credentials to third-party URLs. */
+export function authorizedMediaSource(url: string): { uri: string; headers?: Record<string, string> } {
+  const isApiPath = url.startsWith('/');
+  const uri = isApiPath ? `${API_BASE_URL}${url}` : url;
+  const token = getAccessToken();
+  return isApiPath && token
+    ? { uri, headers: { Authorization: `Bearer ${token}` } }
+    : { uri };
+}
+
 async function refreshOnce(): Promise<string | null> {
   if (!refreshPromise) {
     refreshPromise = refreshAccessToken().finally(() => {

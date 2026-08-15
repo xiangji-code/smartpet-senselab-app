@@ -28,7 +28,14 @@ export interface PetInput {
   sex?: string | null;
   birthday?: string | null;
   weightKg?: number | null;
+  avatarUrl?: string | null;
   notes?: string | null;
+}
+
+export interface PetAvatarFile {
+  uri: string;
+  fileName?: string | null;
+  mimeType?: string | null;
 }
 
 function mapPet(dto: PetDto): PetProfile {
@@ -53,6 +60,7 @@ function toBody(input: PetInput): Record<string, unknown> {
   if (input.sex !== undefined) body.sex = input.sex;
   if (input.birthday !== undefined) body.birthday = input.birthday;
   if (input.weightKg !== undefined) body.weight_kg = input.weightKg;
+  if (input.avatarUrl !== undefined) body.avatar_url = input.avatarUrl;
   if (input.notes !== undefined) body.notes = input.notes;
   return body;
 }
@@ -77,6 +85,16 @@ export const petsApi = {
 
   async update(id: number, input: PetInput): Promise<PetProfile> {
     return mapPet(await api.patch<PetDto>(`${BASE}/${id}`, toBody(input)));
+  },
+
+  async uploadAvatar(id: number, file: PetAvatarFile): Promise<PetProfile> {
+    const form = new FormData();
+    form.append('file', {
+      uri: file.uri,
+      name: file.fileName || `pet-avatar-${id}.jpg`,
+      type: file.mimeType || 'image/jpeg',
+    } as unknown as Blob);
+    return mapPet(await api.upload<PetDto>(`${BASE}/${id}/avatar`, form));
   },
 
   /** 停用（软删除），非物理删除 */

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -16,6 +17,7 @@ import { lastAccountStore } from '../../src/auth/lastAccountStore';
 import { SessionSetupError } from '../../src/auth/sessionErrors';
 import { authApi } from '../../src/api/auth';
 import { ApiError } from '../../src/api/client';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
 
 type Mode = 'login' | 'register';
@@ -34,6 +36,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 export default function LoginScreen() {
   const { signIn, signUp } = useAuth();
+  const { t } = useLanguage();
   const captchaRef = useRef<CaptchaFieldHandle>(null);
   const emailEditedRef = useRef(false);
   const submitLockRef = useRef(false);
@@ -49,6 +52,8 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retrySuggested, setRetrySuggested] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmVisible, setConfirmVisible] = useState(false);
 
   const isRegister = mode === 'register';
 
@@ -76,6 +81,8 @@ export default function LoginScreen() {
     setPassword('');
     setConfirm('');
     setCaptchaCode('');
+    setPasswordVisible(false);
+    setConfirmVisible(false);
     resetMessages();
   }
 
@@ -85,99 +92,99 @@ export default function LoginScreen() {
       if (cause instanceof ApiError) {
         if (cause.kind === 'timeout') {
           return {
-            message: '密码验证已通过，但加载账号信息超时，请重新登录',
+            message: t.loginProfileTimeout,
             retryable: true,
           };
         }
         if (cause.kind === 'network') {
           return {
-            message: '密码验证已通过，但当前网络不可用，请检查网络后重试',
+            message: t.loginProfileNetwork,
             retryable: true,
           };
         }
         if (cause.status >= 500) {
           return {
-            message: '密码验证已通过，但服务器暂时无法加载账号信息，请重试',
+            message: t.loginProfileServer,
             retryable: true,
           };
         }
       }
       return {
-        message: '密码验证已通过，但登录状态建立失败，请重试',
+        message: t.loginSessionFailed,
         retryable: true,
       };
     }
     if (e instanceof ApiError) {
       if (e.kind === 'timeout') {
-        return { message: '连接服务器超时，请稍后重试', retryable: true };
+        return { message: t.connectionTimeout, retryable: true };
       }
       if (e.kind === 'network') {
-        return { message: '网络连接失败，请检查网络后重试', retryable: true };
+        return { message: t.networkFailed, retryable: true };
       }
       if (e.status === 401) {
-        return { message: '邮箱或密码错误，请重试', retryable: false };
+        return { message: t.credentialsInvalid, retryable: false };
       }
       if (e.status === 403) {
-        return { message: '账号已被停用，请联系客服', retryable: false };
+        return { message: t.accountSuspended, retryable: false };
       }
       if (e.status === 422) {
-        return { message: '邮箱或密码格式不正确', retryable: false };
+        return { message: t.credentialsFormatInvalid, retryable: false };
       }
       if (e.status === 429) {
-        return { message: '尝试次数过多，请稍后再试', retryable: true };
+        return { message: t.tooManyAttempts, retryable: true };
       }
       if (e.status >= 500) {
-        return { message: '服务器暂时不可用，请稍后重试', retryable: true };
+        return { message: t.serverUnavailable, retryable: true };
       }
       return {
-        message: e.message || '请求失败，请稍后再试',
+        message: e.message || t.requestFailed,
         retryable: e.retryable,
       };
     }
-    return { message: '发生未知错误，请稍后重试', retryable: true };
+    return { message: t.unknownError, retryable: true };
   }
 
   function friendlyRegisterError(e: unknown): FriendlyError {
     if (e instanceof ApiError) {
       if (e.kind === 'timeout') {
-        return { message: '连接服务器超时，请稍后重试', retryable: true };
+        return { message: t.connectionTimeout, retryable: true };
       }
       if (e.kind === 'network') {
-        return { message: '网络连接失败，请检查网络后重试', retryable: true };
+        return { message: t.networkFailed, retryable: true };
       }
       if (e.status === 400) {
-        return { message: '验证码错误或已过期，请重新输入', retryable: false };
+        return { message: t.captchaInvalid, retryable: false };
       }
       if (e.status === 409) {
-        return { message: '该邮箱已注册，请直接登录', retryable: false };
+        return { message: t.emailRegistered, retryable: false };
       }
       if (e.status === 422) {
-        return { message: '邮箱、密码或验证码格式不正确', retryable: false };
+        return { message: t.registrationFormatInvalid, retryable: false };
       }
       if (e.status >= 500) {
-        return { message: '服务器暂时不可用，请稍后重试', retryable: true };
+        return { message: t.serverUnavailable, retryable: true };
       }
       return {
-        message: e.message || '注册失败，请稍后再试',
+        message: e.message || t.registrationFailed,
         retryable: e.retryable,
       };
     }
-    return { message: '发生未知错误，请稍后重试', retryable: true };
+    return { message: t.unknownError, retryable: true };
   }
 
   async function submitLogin() {
     if (submitLockRef.current) return;
     const e = email.trim().toLowerCase();
     if (!EMAIL_RE.test(e)) {
-      setError('请输入有效的邮箱地址');
+      setError(t.invalidEmail);
       return;
     }
     if (password.length === 0) {
-      setError('请输入密码');
+      setError(t.enterPassword);
       return;
     }
     if (!consent) {
-      setError('请先阅读并同意页面底部的协议与数据采集授权');
+      setError(t.acceptConsent);
       return;
     }
     resetMessages();
@@ -190,7 +197,7 @@ export default function LoginScreen() {
         setPassword('');
         setConfirm('');
         setCaptchaCode('');
-        setNotice('该邮箱尚未注册，请设置密码并输入验证码完成注册');
+        setNotice(t.accountNotRegistered);
         return;
       }
       await signIn(e, password, { dataCollectionConsent: true });
@@ -209,23 +216,23 @@ export default function LoginScreen() {
     if (submitLockRef.current) return;
     const e = email.trim().toLowerCase();
     if (!EMAIL_RE.test(e)) {
-      setError('请输入有效的邮箱地址');
+      setError(t.invalidEmail);
       return;
     }
     if (password.length < 8) {
-      setError('密码至少 8 位');
+      setError(t.passwordMin);
       return;
     }
     if (password !== confirm) {
-      setError('两次输入的密码不一致');
+      setError(t.passwordMismatch);
       return;
     }
     if (captchaCode.trim().length === 0) {
-      setError('请输入图形验证码');
+      setError(t.enterCaptcha);
       return;
     }
     if (!consent) {
-      setError('请先阅读并同意页面底部的协议与数据采集授权');
+      setError(t.acceptConsent);
       return;
     }
     resetMessages();
@@ -248,7 +255,7 @@ export default function LoginScreen() {
         setMode('login');
         setConfirm('');
         setCaptchaCode('');
-        setError('该邮箱已注册，请直接登录');
+        setError(t.emailRegistered);
         return;
       }
       // 其它失败：换一张验证码，避免复用
@@ -265,87 +272,85 @@ export default function LoginScreen() {
 
   return (
     <Screen>
-      <View style={styles.brand}>
-        <Text style={styles.brandText}>SmartPet</Text>
-        <Text style={styles.brandSub}>智能宠物设备管理</Text>
+      <View style={styles.hero}>
+        <View style={styles.heroSignalLeft} />
+        <View style={styles.heroSignalRight} />
+        <Image
+          accessibilityLabel="SmartPet 德牧智能项圈图标"
+          source={require('../../assets/app-icon-white.png')}
+          resizeMode="cover"
+          style={styles.petAvatar}
+        />
       </View>
 
-      <View style={styles.tabs}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: !isRegister, disabled: submitting }}
-          accessibilityLabel="登录"
-          style={({ pressed }) => [
-            styles.tab,
-            !isRegister && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
-          onPress={() => switchMode('login')}
-          disabled={submitting}
-        >
-          <Text style={[styles.tabText, !isRegister && styles.tabTextActive]}>登录</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: isRegister, disabled: submitting }}
-          accessibilityLabel="注册"
-          style={({ pressed }) => [
-            styles.tab,
-            isRegister && styles.tabActive,
-            pressed && styles.tabPressed,
-          ]}
-          onPress={() => switchMode('register')}
-          disabled={submitting}
-        >
-          <Text style={[styles.tabText, isRegister && styles.tabTextActive]}>注册</Text>
-        </Pressable>
-      </View>
+      <View style={styles.authSheet}>
+        <Image
+          accessibilityLabel="SmartPet 智慧陪伴，养宠无忧"
+          source={require('../../assets/smartpet-wordmark.png')}
+          resizeMode="contain"
+          style={styles.brandLogo}
+        />
+        <View style={styles.tabs}>
+          <AuthTab label={t.login} active={!isRegister} disabled={submitting} onPress={() => switchMode('login')} />
+          <AuthTab label={t.register} active={isRegister} disabled={submitting} onPress={() => switchMode('register')} />
+        </View>
 
-      <View style={styles.card}>
-        <TextInput
-          accessibilityLabel="邮箱"
-          style={styles.input}
-          placeholder="邮箱"
-          placeholderTextColor={colors.muted}
+        <View style={styles.form}>
+        <AuthInput
+          icon="mail-outline"
+          accessibilityLabel={t.email}
+          placeholder={t.email}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
           textContentType="emailAddress"
           value={email}
           editable={!submitting}
-          onChangeText={(t) => {
+          onChangeText={(value) => {
             emailEditedRef.current = true;
-            setEmail(t);
+            setEmail(value);
             resetMessages();
           }}
         />
 
-        <TextInput
-          accessibilityLabel={isRegister ? '设置密码' : '密码'}
-          style={styles.input}
-          placeholder={isRegister ? '设置密码（至少 8 位）' : '密码'}
-          placeholderTextColor={colors.muted}
-          secureTextEntry
+        <AuthInput
+          icon="lock-closed-outline"
+          accessibilityLabel={isRegister ? t.setPassword : t.password}
+          placeholder={isRegister ? t.setPasswordHint : t.password}
+          secureTextEntry={!passwordVisible}
           value={password}
           editable={!submitting}
-          onChangeText={(t) => {
-            setPassword(t);
+          trailing={
+            <PasswordVisibilityButton
+              visible={passwordVisible}
+              disabled={submitting}
+              onPress={() => setPasswordVisible((current) => !current)}
+            />
+          }
+          onChangeText={(value) => {
+            setPassword(value);
             resetMessages();
           }}
         />
 
         {isRegister ? (
           <>
-            <TextInput
-              accessibilityLabel="确认密码"
-              style={styles.input}
-              placeholder="确认密码"
-              placeholderTextColor={colors.muted}
-              secureTextEntry
+            <AuthInput
+              icon="shield-checkmark-outline"
+              accessibilityLabel={t.confirmPassword}
+              placeholder={t.confirmPassword}
+              secureTextEntry={!confirmVisible}
               value={confirm}
               editable={!submitting}
-              onChangeText={(t) => {
-                setConfirm(t);
+              trailing={
+                <PasswordVisibilityButton
+                  visible={confirmVisible}
+                  disabled={submitting}
+                  onPress={() => setConfirmVisible((current) => !current)}
+                />
+              }
+              onChangeText={(value) => {
+                setConfirm(value);
                 resetMessages();
               }}
             />
@@ -371,14 +376,14 @@ export default function LoginScreen() {
           <View accessibilityRole="alert" style={styles.errorBox}>
             <Text style={styles.error}>{error}</Text>
             {retrySuggested ? (
-              <Text style={styles.retryHint}>网络恢复后可直接点击下方按钮重试</Text>
+              <Text style={styles.retryHint}>{t.retryHint}</Text>
             ) : null}
           </View>
         ) : null}
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isRegister ? '注册并登录' : '登录'}
+          accessibilityLabel={isRegister ? t.registerAndLogin : t.login}
           accessibilityState={{ disabled: submitting, busy: submitting }}
           style={({ pressed }) => [
             styles.btn,
@@ -392,80 +397,197 @@ export default function LoginScreen() {
             <View style={styles.submittingRow}>
               <ActivityIndicator color="#fff" />
               <Text style={styles.btnText}>
-                {isRegister ? '正在注册…' : '正在登录…'}
+                {isRegister ? t.registering : t.loggingIn}
               </Text>
             </View>
           ) : (
             <Text style={styles.btnText}>
-              {isRegister ? '注册并登录' : retrySuggested ? '重新登录' : '登录'}
+              {isRegister ? t.registerAndLogin : retrySuggested ? t.retryLogin : t.login}
             </Text>
           )}
         </Pressable>
-      </View>
+        </View>
 
-      <View style={styles.consentRow}>
-        <Switch
-          accessibilityLabel="同意用户协议、隐私政策和数据采集授权"
-          value={consent}
-          onValueChange={setConsent}
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityLabel={t.loginConsent}
+          accessibilityState={{ checked: consent, disabled: submitting }}
           disabled={submitting}
-          trackColor={{ true: colors.green, false: colors.line }}
-        />
-        <Text style={styles.consentText}>
-          我已阅读并同意《用户协议》《隐私政策》，并授权 SmartPet
-          采集和上传设备产生的声音、行为和设备状态数据。
-        </Text>
+          style={({ pressed }) => [styles.consentRow, pressed && styles.consentPressed]}
+          onPress={() => setConsent((current) => !current)}
+        >
+          <View style={[styles.checkbox, consent && styles.checkboxChecked]}>
+            {consent ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
+          </View>
+          <Text style={styles.consentText}>{t.loginConsent}</Text>
+        </Pressable>
       </View>
     </Screen>
   );
 }
 
+function AuthTab({ label, active, disabled, onPress }: { label: string; active: boolean; disabled: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active, disabled }}
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.tab, active && styles.tabActive, pressed && styles.tabPressed]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+type AuthInputProps = ComponentProps<typeof TextInput> & {
+  icon: keyof typeof Ionicons.glyphMap;
+  trailing?: ReactNode;
+};
+
+function AuthInput({ icon, trailing, style, ...props }: AuthInputProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={[styles.inputShell, focused && styles.inputShellFocused]}>
+      <Ionicons name={icon} size={21} color={focused ? colors.greenDark : colors.muted} />
+      <TextInput
+        {...props}
+        style={[styles.input, style]}
+        placeholderTextColor={colors.muted}
+        onFocus={(event) => {
+          setFocused(true);
+          props.onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          props.onBlur?.(event);
+        }}
+      />
+      {trailing}
+    </View>
+  );
+}
+
+function PasswordVisibilityButton({ visible, disabled, onPress }: { visible: boolean; disabled: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={visible ? '隐藏密码' : '显示密码'}
+      hitSlop={10}
+      disabled={disabled}
+      style={styles.eyeButton}
+      onPress={onPress}
+    >
+      <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={21} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  brand: {
-    minHeight: 112,
-    borderRadius: radius.lg,
+  hero: {
+    height: 168,
+    overflow: 'visible',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.mint,
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
+    backgroundColor: colors.indigo,
+    marginHorizontal: -spacing.lg,
+    marginTop: -spacing.lg,
+    marginBottom: -50,
+    zIndex: 2,
+    elevation: 2,
   },
-  brandText: { fontSize: 36, fontWeight: '900', color: colors.greenDark },
-  brandSub: { color: colors.muted, fontSize: fontSize.small, fontWeight: '600' },
+  heroSignalLeft: {
+    position: 'absolute',
+    left: -42,
+    bottom: 20,
+    width: 120,
+    height: 120,
+    borderWidth: 1,
+    borderColor: '#334273',
+    borderRadius: radius.pill,
+  },
+  heroSignalRight: {
+    position: 'absolute',
+    right: -26,
+    top: -40,
+    width: 132,
+    height: 132,
+    borderWidth: 1,
+    borderColor: '#334273',
+    borderRadius: radius.pill,
+  },
+  petAvatar: {
+    position: 'absolute',
+    bottom: -34,
+    width: 96,
+    height: 96,
+    borderWidth: 4,
+    borderColor: '#F8F6EF',
+    borderRadius: radius.pill,
+    backgroundColor: '#fff',
+    zIndex: 4,
+    elevation: 4,
+  },
+  authSheet: {
+    gap: 10,
+    paddingTop: 94,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.panel,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    zIndex: 1,
+  },
+  brandLogo: { alignSelf: 'center', width: 142, height: 46 },
+  heading: {
+    color: colors.indigo,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  subheading: { color: colors.muted, fontSize: fontSize.small, textAlign: 'center' },
   tabs: {
     flexDirection: 'row',
     backgroundColor: colors.soft,
     borderRadius: radius.sm,
     padding: 4,
-    marginBottom: spacing.md,
   },
   tab: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    minHeight: 40,
+    justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: radius.sm - 2,
+    borderRadius: 10,
   },
-  tabActive: { backgroundColor: '#fff' },
+  tabActive: { backgroundColor: colors.green },
   tabPressed: { opacity: 0.75 },
   tabText: { fontWeight: '700', color: colors.muted },
-  tabTextActive: { color: colors.greenDark },
-  card: {
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  input: {
+  tabTextActive: { color: '#FFFFFF', fontWeight: '900' },
+  form: { gap: 10 },
+  inputShell: {
     minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     borderWidth: 1,
     borderColor: colors.lineStrong,
-    borderRadius: radius.sm,
-    padding: spacing.md,
-    color: colors.ink,
-    backgroundColor: '#fff',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.panel,
   },
+  inputShellFocused: { borderColor: colors.green, backgroundColor: '#FCFFFE' },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 46,
+    paddingVertical: spacing.sm,
+    color: colors.ink,
+    fontSize: fontSize.body,
+  },
+  eyeButton: { width: 36, height: 44, alignItems: 'center', justifyContent: 'center' },
   notice: { color: colors.greenDark, fontSize: fontSize.small },
   errorBox: {
     gap: spacing.xs,
@@ -479,11 +601,11 @@ const styles = StyleSheet.create({
   retryHint: { color: colors.muted, fontSize: fontSize.tiny },
   btn: {
     backgroundColor: colors.green,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     padding: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 46,
+    minHeight: 50,
   },
   btnDisabled: { opacity: 0.5 },
   btnPressed: { backgroundColor: colors.greenPressed },
@@ -495,9 +617,21 @@ const styles = StyleSheet.create({
   },
   consentRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
     alignItems: 'flex-start',
-    marginTop: spacing.lg,
+    paddingVertical: spacing.xs,
   },
-  consentText: { flex: 1, fontSize: fontSize.tiny, color: colors.muted, lineHeight: 18 },
+  consentPressed: { opacity: 0.72 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: 7,
+    backgroundColor: colors.panel,
+  },
+  checkboxChecked: { borderColor: colors.green, backgroundColor: colors.green },
+  consentText: { flex: 1, fontSize: fontSize.tiny, color: colors.muted, lineHeight: 19 },
 });

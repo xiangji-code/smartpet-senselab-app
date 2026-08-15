@@ -5,6 +5,7 @@
  * 点击图片或“换一张”可刷新。父组件通过 `onCaptchaId` 获取当前 captchaId，并用
  * 受控的 `value`/`onChangeText` 拿到用户输入；提交失败后可用 ref.refresh() 换新。
  */
+import { Ionicons } from '@expo/vector-icons';
 import {
   forwardRef,
   useCallback,
@@ -23,6 +24,7 @@ import {
 import { SvgXml } from 'react-native-svg';
 
 import { authApi } from '../api/auth';
+import { useLanguage } from '../i18n/LanguageContext';
 import { colors, fontSize, radius, spacing } from '../theme/theme';
 
 export interface CaptchaFieldHandle {
@@ -40,6 +42,7 @@ export const CaptchaField = forwardRef<CaptchaFieldHandle, Props>(function Captc
   { value, onChangeText, onCaptchaId, editable = true },
   ref,
 ) {
+  const { t } = useLanguage();
   const [svg, setSvg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -67,29 +70,33 @@ export const CaptchaField = forwardRef<CaptchaFieldHandle, Props>(function Captc
 
   return (
     <View style={styles.row}>
-      <TextInput
-        style={styles.input}
-        placeholder="图形验证码"
-        placeholderTextColor={colors.muted}
-        autoCapitalize="characters"
-        autoCorrect={false}
-        maxLength={6}
-        value={value}
-        editable={editable}
-        onChangeText={onChangeText}
-      />
+      <View style={styles.inputShell}>
+        <Ionicons name="shield-checkmark-outline" size={21} color={colors.muted} />
+        <TextInput
+          style={styles.input}
+          accessibilityLabel={t.captcha}
+          placeholder={t.captcha}
+          placeholderTextColor={colors.muted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={6}
+          value={value}
+          editable={editable}
+          onChangeText={onChangeText}
+        />
+      </View>
       <Pressable
         style={styles.image}
         onPress={() => void load()}
         disabled={loading}
-        accessibilityLabel="点击刷新验证码"
+        accessibilityLabel={t.refreshCaptcha}
       >
         {loading ? (
           <ActivityIndicator color={colors.greenDark} />
         ) : svg ? (
           <SvgXml xml={svg} width="100%" height="100%" />
         ) : (
-          <Text style={styles.retry}>{failed ? '加载失败\n点击重试' : '点击获取'}</Text>
+          <Text style={styles.retry}>{failed ? t.captchaLoadFailed : t.captchaGet}</Text>
         )}
       </Pressable>
     </View>
@@ -98,23 +105,34 @@ export const CaptchaField = forwardRef<CaptchaFieldHandle, Props>(function Captc
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm, alignItems: 'stretch' },
+  inputShell: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.panel,
+  },
   input: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.sm,
-    padding: spacing.md,
+    minWidth: 0,
+    minHeight: 46,
+    paddingVertical: spacing.sm,
     color: colors.ink,
-    backgroundColor: '#fff',
+    fontSize: fontSize.body,
   },
   image: {
-    width: 120,
+    width: 112,
     height: 48,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: colors.mint,
+    backgroundColor: colors.blueSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
