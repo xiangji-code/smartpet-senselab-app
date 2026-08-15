@@ -203,7 +203,7 @@ function CompactDeviceCard({
               onEditName();
             }}
           >
-            <Text style={styles.editNameText}>改</Text>
+            <Ionicons name="create-outline" size={16} color={colors.greenDark} />
           </Pressable>
         </View>
         <Text numberOfLines={1} style={styles.deviceMeta}>{deviceTypeLabel(device.deviceType)}{petName ? ` · 已关联 ${petName}` : ''}</Text>
@@ -271,8 +271,7 @@ const styles = StyleSheet.create({
   deviceCopy: { flex: 1, minWidth: 0, gap: 2 },
   deviceNameRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   deviceName: { flexShrink: 1, color: colors.ink, fontSize: fontSize.small, fontWeight: '900' },
-  editNameButton: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center', borderRadius: 5, backgroundColor: colors.green },
-  editNameText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900', lineHeight: 12 },
+  editNameButton: { width: 22, height: 24, alignItems: 'center', justifyContent: 'center' },
   deviceMeta: { color: colors.muted, fontSize: 11 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingTop: 3 },
   deviceAction: { flexDirection: 'row', alignItems: 'center', gap: 1, paddingHorizontal: 9, minHeight: 32, borderRadius: radius.sm, backgroundColor: colors.green },
