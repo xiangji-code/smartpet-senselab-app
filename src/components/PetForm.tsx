@@ -16,6 +16,7 @@ import { authorizedMediaSource } from '../api/client';
 import type { PetAvatarFile, PetInput } from '../api/pets';
 import type { PetProfile } from '../types/domain';
 import { colors, fontSize, radius, spacing } from '../theme/theme';
+import { BreedPickerModal } from './breed-picker-modal';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -53,6 +54,7 @@ export function PetForm({
   const [name, setName] = useState(initial?.name ?? '');
   const [species, setSpecies] = useState(initial?.species ?? 'dog');
   const [breed, setBreed] = useState(initial?.breed ?? '');
+  const [showBreedPicker, setShowBreedPicker] = useState(false);
   const [sex, setSex] = useState<string>(initial?.sex ?? '');
   const [birthday, setBirthday] = useState(initial?.birthday ?? '');
   const [showBirthdayPicker, setShowBirthdayPicker] = useState(false);
@@ -147,7 +149,18 @@ export function PetForm({
         <TextInput accessibilityLabel="宠物物种" style={styles.input} value={species} onChangeText={setSpecies} placeholder="dog" placeholderTextColor={colors.muted} />
       </Field>
       <Field label="品种">
-        <TextInput accessibilityLabel="宠物品种" style={styles.input} value={breed} onChangeText={setBreed} placeholder="如：柯基" placeholderTextColor={colors.muted} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="选择宠物品种"
+          style={styles.selectField}
+          onPress={() => setShowBreedPicker(true)}
+        >
+          <Ionicons name="search-outline" size={20} color={colors.greenDark} />
+          <Text style={[styles.pickerValue, !breed && styles.pickerPlaceholder]}>
+            {breed || '可搜索选择，也可以留空'}
+          </Text>
+          <Ionicons name="chevron-down" size={20} color={colors.muted} />
+        </Pressable>
       </Field>
       <Field label="性别">
         <View style={styles.segment}>
@@ -230,6 +243,13 @@ export function PetForm({
       >
         {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{submitLabel}</Text>}
       </Pressable>
+
+      <BreedPickerModal
+        visible={showBreedPicker}
+        value={breed}
+        onClose={() => setShowBreedPicker(false)}
+        onSelect={setBreed}
+      />
     </View>
   );
 }
@@ -265,6 +285,17 @@ const styles = StyleSheet.create({
     minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: '#fff',
+  },
+  selectField: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     borderWidth: 1,
     borderColor: colors.lineStrong,
     borderRadius: radius.md,
