@@ -3,30 +3,37 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { petsApi } from '../../src/api/pets';
 import { authorizedMediaSource } from '../../src/api/client';
+import { MAX_ACTIVE_PET_PROFILES, petsApi } from '../../src/api/pets';
 import { DesignScreen } from '../../src/components/design-screen';
 import { PageBackButton } from '../../src/components/page-back-button';
 import { href } from '../../src/lib/nav';
-import type { PetProfile } from '../../src/types/domain';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
+import type { PetProfile } from '../../src/types/domain';
 
 export default function PetsListScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [pets, setPets] = useState<PetProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       setPets(await petsApi.list());
+    } catch {
+      setError('宠物档案加载失败，请检查网络后重试');
     } finally {
       setLoading(false);
     }
@@ -38,71 +45,120 @@ export default function PetsListScreen() {
     }, [reload]),
   );
 
+  const atLimit = pets.length >= MAX_ACTIVE_PET_PROFILES;
+  const createPet = () => {
+    if (!atLimit) router.push(href('/pets/new'));
+  };
+
+  const renderPet = ({ item: pet }: { item: PetProfile }) => (
+    <Pressable style={styles.card} onPress={() => router.push(href(`/pets/${pet.id}`))}>
+      <View style={styles.avatar}>
+        {pet.avatarUrl ? (
+          <Image
+            accessibilityLabel={`${pet.name}的头像`}
+            source={authorizedMediaSource(pet.avatarUrl)}
+            style={styles.avatarImage}
+          />
+        ) : (
+          <Ionicons name="paw" size={20} color={colors.greenDark} />
+        )}
+      </View>
+      <View style={styles.cardBody}>
+        <Text style={styles.name}>{pet.name}</Text>
+        <Text style={styles.meta}>
+          {[pet.species, pet.breed, pet.sex === 'male' ? '公' : pet.sex === 'female' ? '母' : null]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
+  );
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <DesignScreen
-        title="宠物档案"
+        title={`宠物档案（${pets.length}/${MAX_ACTIVE_PET_PROFILES}）`}
         subtitle="管理设备关联宠物与基础资料"
         leading={<PageBackButton color="#FFFFFF" onPress={() => router.back()} />}
-        action={(
-          <Pressable onPress={() => router.push(href('/pets/new'))} hitSlop={10}>
+        action={atLimit ? undefined : (
+          <Pressable
+            accessibilityLabel="新建宠物档案"
+            onPress={createPet}
+            hitSlop={10}
+          >
             <Ionicons name="add-circle-outline" size={28} color="#FFFFFF" />
           </Pressable>
         )}
+        scrollable={false}
       >
         {loading && pets.length === 0 ? (
-          <ActivityIndicator color={colors.green} style={{ marginTop: spacing.xl }} />
-        ) : pets.length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="paw-outline" size={40} color={colors.muted} />
-            <Text style={styles.emptyText}>还没有宠物档案</Text>
-            <Pressable style={styles.emptyBtn} onPress={() => router.push(href('/pets/new'))}>
-              <Text style={styles.emptyBtnText}>创建宠物档案</Text>
-            </Pressable>
-          </View>
+          <ActivityIndicator color={colors.green} style={styles.loader} />
         ) : (
-          pets.map((p) => (
-            <Pressable
-              key={p.id}
-              style={styles.card}
-              onPress={() => router.push(href(`/pets/${p.id}`))}
-            >
-              <View style={styles.avatar}>
-                {p.avatarUrl ? <Image accessibilityLabel={`${p.name}的头像`} source={authorizedMediaSource(p.avatarUrl)} style={styles.avatarImage} /> : <Ionicons name="paw" size={20} color={colors.greenDark} />}
+          <FlatList
+            data={pets}
+            renderItem={renderPet}
+            keyExtractor={(pet) => String(pet.id)}
+            contentInsetAdjustmentBehavior="automatic"
+            showsVerticalScrollIndicator={false}
+            refreshing={loading}
+            onRefresh={() => void reload()}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl },
+              pets.length === 0 && styles.emptyList,
+            ]}
+            ListEmptyComponent={(
+              <View style={styles.empty}>
+                <Ionicons name={error ? 'cloud-offline-outline' : 'paw-outline'} size={40} color={colors.muted} />
+                <Text style={styles.emptyText}>{error ?? '还没有宠物档案'}</Text>
+                <Pressable style={styles.emptyBtn} onPress={error ? () => void reload() : createPet}>
+                  <Text style={styles.emptyBtnText}>{error ? '重新加载' : '创建宠物档案'}</Text>
+                </Pressable>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{p.name}</Text>
-                <Text style={styles.meta}>
-                  {[p.species, p.breed, p.sex === 'male' ? '公' : p.sex === 'female' ? '母' : null]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Text>
+            )}
+            ListFooterComponent={pets.length > 0 ? (
+              <View style={styles.footer}>
+                {atLimit ? (
+                  <View style={styles.limitCard}>
+                    <Ionicons name="information-circle-outline" size={20} color={colors.indigo} />
+                    <Text style={styles.limitText}>已达到 1000 个宠物档案上限</Text>
+                  </View>
+                ) : (
+                  <Pressable style={styles.addButton} onPress={createPet}>
+                    <Ionicons name="add" size={20} color="#FFFFFF" />
+                    <Text style={styles.addButtonText}>新建宠物档案</Text>
+                  </Pressable>
+                )}
+                <View style={styles.ruleCard}>
+                  <Text style={styles.ruleEyebrow}>档案规则</Text>
+                  <Text style={styles.ruleText}>
+                    每个账号最多创建 1000 个宠物档案；同一账号下宠物名称不能重复。
+                  </Text>
+                </View>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-            </Pressable>
-          ))
+            ) : null}
+          />
         )}
-        {pets.length > 0 ? (
-          <Pressable style={styles.addButton} onPress={() => router.push(href('/pets/new'))}>
-            <Ionicons name="add" size={20} color="#FFFFFF" />
-            <Text style={styles.addButtonText}>新建宠物档案</Text>
-          </Pressable>
-        ) : null}
-        <View style={styles.ruleCard}>
-          <Text style={styles.ruleEyebrow}>档案规则</Text>
-          <Text style={styles.ruleText}>名称必填；停用档案不会删除已有设备记录。</Text>
-        </View>
       </DesignScreen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  empty: { alignItems: 'center', gap: spacing.md, marginTop: spacing.xl * 2 },
-  emptyText: { color: colors.muted, fontSize: fontSize.body },
-  emptyBtn: { backgroundColor: colors.green, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.sm },
-  emptyBtnText: { color: '#fff', fontWeight: '800' },
+  loader: { marginTop: spacing.xl },
+  listContent: { padding: spacing.lg, gap: spacing.lg },
+  emptyList: { flexGrow: 1 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
+  emptyText: { color: colors.muted, fontSize: fontSize.body, textAlign: 'center' },
+  emptyBtn: {
+    backgroundColor: colors.green,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.sm,
+  },
+  emptyBtnText: { color: '#FFFFFF', fontWeight: '800' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -113,6 +169,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.lg,
   },
+  cardBody: { flex: 1 },
   avatar: {
     width: 40,
     height: 40,
@@ -125,6 +182,7 @@ const styles = StyleSheet.create({
   avatarImage: { width: '100%', height: '100%' },
   name: { fontSize: fontSize.title, fontWeight: '800', color: colors.ink },
   meta: { fontSize: fontSize.small, color: colors.muted, marginTop: 2 },
+  footer: { gap: spacing.lg },
   addButton: {
     minHeight: 52,
     flexDirection: 'row',
@@ -135,6 +193,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.green,
   },
   addButtonText: { color: '#FFFFFF', fontWeight: '800' },
+  limitCard: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.blueSoft,
+  },
+  limitText: { color: colors.indigo, fontWeight: '800' },
   ruleCard: { gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.blueSoft },
   ruleEyebrow: { color: colors.blue, fontSize: fontSize.tiny, fontWeight: '800' },
   ruleText: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '700', lineHeight: 20 },

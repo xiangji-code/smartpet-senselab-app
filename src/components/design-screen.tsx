@@ -11,12 +11,14 @@ export function DesignScreen({
   leading,
   action,
   children,
+  scrollable = true,
 }: {
   title: string;
   subtitle?: string;
   leading?: ReactNode;
   action?: ReactNode;
   children?: ReactNode;
+  scrollable?: boolean;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -26,17 +28,21 @@ export function DesignScreen({
         <DesignTopBar title={title} subtitle={subtitle} leading={leading} action={action} />
       </View>
       <View style={styles.surface}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl },
-          ]}
-        >
-          {children}
-        </ScrollView>
+        {scrollable ? (
+          <ScrollView
+            contentInsetAdjustmentBehavior="automatic"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.content,
+              { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl },
+            ]}
+          >
+            {children}
+          </ScrollView>
+        ) : (
+          <View style={styles.staticContent}>{children}</View>
+        )}
       </View>
     </View>
   );
@@ -52,4 +58,5 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.lg + 8,
   },
   content: { padding: spacing.lg, gap: spacing.lg },
+  staticContent: { flex: 1 },
 });

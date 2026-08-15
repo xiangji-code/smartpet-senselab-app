@@ -66,6 +66,7 @@ function toBody(input: PetInput): Record<string, unknown> {
 }
 
 const BASE = '/api/app/pets';
+export const MAX_ACTIVE_PET_PROFILES = 1000;
 
 export function createPetRequestKey(): string {
   return `pet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
