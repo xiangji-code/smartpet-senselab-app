@@ -24,6 +24,6 @@ export function intensityFromPoint(
     return clampIntensity(currentValue, max);
   }
 
-  const clockwiseFromTop = (Math.atan2(offsetY, offsetX) + Math.PI / 2 + FULL_CIRCLE) % FULL_CIRCLE;
-  return clampIntensity((clockwiseFromTop / FULL_CIRCLE) * max, max);
+  const clockwiseFromBottom = (Math.atan2(offsetY, offsetX) - Math.PI / 2 + FULL_CIRCLE) % FULL_CIRCLE;
+  return clampIntensity((clockwiseFromBottom / FULL_CIRCLE) * max, max);
 }

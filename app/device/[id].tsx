@@ -344,7 +344,6 @@ function TrainerControls({ device }: { device: Device }) {
           </View> : null}
         </View>
 
-        <Text style={styles.dialInstruction}>{selectedCommand === 'light' ? '点击圆形区域立即发送' : '拖动圆环调节整数档位，点击中心立即发送'}</Text>
       </SectionCard>
 
       {feedback ? (
@@ -508,7 +507,7 @@ function CircularIntensityDial({
   const dialOrigin = useRef<{ x: number; y: number } | null>(null);
   currentValue.current = value;
   const progress = intensityProgress(value, max);
-  const knobAngle = progress * Math.PI * 2 - Math.PI / 2;
+  const knobAngle = progress * Math.PI * 2 + Math.PI / 2;
   const knobLeft = DIAL_SIZE / 2 + DIAL_RADIUS * Math.cos(knobAngle) - DIAL_KNOB_SIZE / 2;
   const knobTop = DIAL_SIZE / 2 + DIAL_RADIUS * Math.sin(knobAngle) - DIAL_KNOB_SIZE / 2;
   const activeColor = danger ? colors.red : colors.green;
@@ -563,7 +562,7 @@ function CircularIntensityDial({
           cy={DIAL_SIZE / 2}
           r={DIAL_RADIUS}
           fill="none"
-          rotation={-90}
+          rotation={90}
           origin={`${DIAL_SIZE / 2}, ${DIAL_SIZE / 2}`}
           stroke={activeColor}
           strokeDasharray={`${DIAL_CIRCUMFERENCE} ${DIAL_CIRCUMFERENCE}`}
@@ -591,7 +590,26 @@ function CircularIntensityDial({
 
 function RemoteMode({ icon, label, active, danger = false, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; active: boolean; danger?: boolean; onPress: () => void }) {
   const foreground = danger ? '#FFFFFF' : active ? '#FFFFFF' : colors.greenDark;
-  return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} style={[styles.remoteMode, danger && styles.remoteModeDanger, active && !danger && styles.remoteModeActive]} onPress={onPress}><Ionicons name={icon} size={23} color={foreground} /><Text style={[styles.remoteModeText, (active || danger) && styles.remoteModeTextActive]}>{label}</Text></Pressable>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityHint={`选择${label}指令`}
+      accessibilityState={{ selected: active }}
+      style={({ pressed }) => [
+        styles.remoteMode,
+        danger && styles.remoteModeDanger,
+        active && !danger && styles.remoteModeActive,
+        pressed && styles.remoteModePressed,
+      ]}
+      onPress={onPress}
+    >
+      <Ionicons name={icon} size={25} color={foreground} />
+      <Text style={[styles.remoteModeText, (active || danger) && styles.remoteModeTextActive]}>{label}</Text>
+      <View style={[styles.remoteModeCue, (active || danger) && styles.remoteModeCueStrong]}>
+        <Text style={[styles.remoteModeCueText, (active || danger) && styles.remoteModeCueTextStrong]}>{active ? '已选择' : '点击选择'}</Text>
+      </View>
+    </Pressable>
+  );
 }
 
 function IntensityControl({
@@ -989,11 +1007,29 @@ const styles = StyleSheet.create({
   btnMuted: { opacity: 0.5 },
   controlBlock: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.md },
   commandGrid: { flexDirection: 'row', gap: spacing.sm },
-  remoteMode: { flex: 1, minHeight: 70, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.mint },
-  remoteModeActive: { backgroundColor: colors.green },
-  remoteModeDanger: { backgroundColor: colors.red },
+  remoteMode: {
+    flex: 1,
+    minHeight: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderBottomWidth: 4,
+    borderColor: colors.lineStrong,
+    borderBottomColor: '#B8CBC8',
+    borderRadius: radius.sm,
+    backgroundColor: colors.mint,
+    boxShadow: '0 3px 6px rgba(16, 27, 77, 0.12)',
+  },
+  remoteModeActive: { borderColor: colors.greenDark, borderBottomColor: '#226D65', backgroundColor: colors.green },
+  remoteModeDanger: { borderColor: '#C93329', borderBottomColor: '#A72720', backgroundColor: colors.red },
+  remoteModePressed: { transform: [{ translateY: 2 }], opacity: 0.82, boxShadow: '0 1px 2px rgba(16, 27, 77, 0.12)' },
   remoteModeText: { color: colors.greenDark, fontSize: fontSize.small, fontWeight: '800' },
   remoteModeTextActive: { color: '#FFFFFF' },
+  remoteModeCue: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: '#FFFFFF' },
+  remoteModeCueStrong: { backgroundColor: 'rgba(255, 255, 255, 0.22)' },
+  remoteModeCueText: { color: colors.greenDark, fontSize: 9, fontWeight: '800' },
+  remoteModeCueTextStrong: { color: '#FFFFFF' },
   remoteDialArea: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
   remoteDial: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.panel },
   remoteDialStatic: { width: DIAL_SIZE, height: DIAL_SIZE, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: DIAL_STROKE, borderColor: colors.green, backgroundColor: colors.panel },
@@ -1004,7 +1040,6 @@ const styles = StyleSheet.create({
   remoteDialLabel: { color: colors.indigo, fontSize: fontSize.title, fontWeight: '900' },
   remoteDialLabelDanger: { color: colors.red },
   remoteDialValue: { color: colors.muted, fontSize: fontSize.small, fontWeight: '700' },
-  dialInstruction: { color: colors.muted, fontSize: fontSize.tiny, textAlign: 'center' },
   dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   dialStepButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.soft },
   dialStepText: { color: colors.indigo, fontSize: 24, fontWeight: '800' },

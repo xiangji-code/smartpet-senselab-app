@@ -14,10 +14,10 @@ describe('circular intensity', () => {
     expect(clampIntensity(9, 8)).toBe(8);
   });
 
-  it('maps cardinal drag positions clockwise from the top', () => {
-    expect(intensityFromPoint(100, 200, 200, 8, 1)).toBe(4);
-    expect(intensityFromPoint(200, 100, 200, 8, 1)).toBe(2);
-    expect(intensityFromPoint(0, 100, 200, 8, 1)).toBe(6);
+  it('maps cardinal drag positions clockwise from the bottom', () => {
+    expect(intensityFromPoint(0, 100, 200, 8, 1)).toBe(2);
+    expect(intensityFromPoint(100, 0, 200, 8, 1)).toBe(4);
+    expect(intensityFromPoint(200, 100, 200, 8, 1)).toBe(6);
   });
 
   it('keeps the current level when a drag passes through the center', () => {
