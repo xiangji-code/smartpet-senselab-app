@@ -1,6 +1,6 @@
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Alert, StyleSheet, Text } from 'react-native';
 
 import { DesignScreen } from '../../src/components/design-screen';
 import { PageBackButton } from '../../src/components/page-back-button';
@@ -19,7 +19,16 @@ export default function NewPetScreen() {
     setError(null);
     try {
       const pet = await petsApi.create(input);
-      if (input.avatarFile) await petsApi.uploadAvatar(pet.id, input.avatarFile);
+      if (input.avatarFile) {
+        try {
+          await petsApi.uploadAvatar(pet.id, input.avatarFile);
+        } catch {
+          Alert.alert(
+            '档案已创建',
+            '宠物档案已经保存，但头像上传失败。你可以稍后在宠物档案中重新上传头像。',
+          );
+        }
+      }
       router.back();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '创建失败，请稍后再试');

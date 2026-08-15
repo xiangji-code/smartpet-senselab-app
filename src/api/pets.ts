@@ -88,12 +88,12 @@ export const petsApi = {
   },
 
   async uploadAvatar(id: number, file: PetAvatarFile): Promise<PetProfile> {
+    const { File } = await import('expo-file-system');
+    const localFile = new File(file.uri);
+    if (!localFile.exists) throw new Error('待上传的宠物头像不存在');
+
     const form = new FormData();
-    form.append('file', {
-      uri: file.uri,
-      name: file.fileName || `pet-avatar-${id}.jpg`,
-      type: file.mimeType || 'image/jpeg',
-    } as unknown as Blob);
+    form.append('file', localFile, file.fileName || `pet-avatar-${id}.jpg`);
     return mapPet(await api.upload<PetDto>(`${BASE}/${id}/avatar`, form));
   },
 
