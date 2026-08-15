@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -14,8 +14,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FeedbackState } from '../../src/components/feedback-state';
-import { authorizedMediaSource } from '../../src/api/client';
+import { ApiError, authorizedMediaSource } from '../../src/api/client';
+import { devicesApi } from '../../src/api/devices';
 import { InlineError } from '../../src/components/inline-error';
+import { PromptModal } from '../../src/components/PromptModal';
 import { StatusPill } from '../../src/components/StatusPill';
 import { getLatestConnectedSmartPetDevice } from '../../src/ble/smartPetBle';
 import { useDevicesWithPets } from '../../src/hooks/useDevicesWithPets';
@@ -33,6 +35,9 @@ export default function DevicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { devices, petById, petNameByDevice, loading, error, reload } = useDevicesWithPets();
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -45,8 +50,25 @@ export default function DevicesScreen() {
     devices.map((device) => petNameByDevice[device.id]).filter(Boolean),
   );
   const pets = Object.values(petById);
-  const trainer = boundDevices.find((device) => device.deviceType === 'trainer');
-  const barkStopper = boundDevices.find((device) => device.deviceType === 'bark_stopper');
+  const openRename = (device: Device) => {
+    setRenameError(null);
+    setEditingDevice(device);
+  };
+
+  const renameDevice = async (deviceName: string) => {
+    if (!editingDevice || renameBusy) return;
+    setRenameBusy(true);
+    setRenameError(null);
+    try {
+      await devicesApi.rename(editingDevice.id, deviceName.trim());
+      setEditingDevice(null);
+      await reload();
+    } catch (cause) {
+      setRenameError(cause instanceof ApiError ? cause.message : '设备名称保存失败，请稍后重试');
+    } finally {
+      setRenameBusy(false);
+    }
+  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -110,29 +132,12 @@ export default function DevicesScreen() {
                     key={device.id}
                     device={device}
                     petName={petNameByDevice[device.id] ?? undefined}
+                    onEditName={() => openRename(device)}
                     onPress={() => router.push(deviceHref(device))}
                   />
                 ))}
               </View>
             )}
-
-            <SectionTitle title="快捷控制" />
-            <View style={styles.quickRow}>
-              <QuickControl
-                icon="radio-outline"
-                title="训狗器"
-                description="声音、振动、灯光与电击"
-                disabled={!trainer}
-                onPress={() => trainer && router.push(href(`/device/${trainer.id}`))}
-              />
-              <QuickControl
-                icon="volume-mute-outline"
-                title="止吠器"
-                description="灵敏度、大型和吠叫计数"
-                disabled={!barkStopper}
-                onPress={() => barkStopper && router.push(href(`/device/${barkStopper.id}`))}
-              />
-            </View>
 
             <View style={styles.summaryCard}>
               <Text style={styles.summaryTitle}>账号概览</Text>
@@ -145,6 +150,22 @@ export default function DevicesScreen() {
           </>
         )}
       </ScrollView>
+      <PromptModal
+        visible={editingDevice !== null}
+        title="编辑设备名称"
+        placeholder="请输入设备名称"
+        initialValue={editingDevice?.deviceName || editingDevice?.deviceSn || ''}
+        confirmText="保存名称"
+        busy={renameBusy}
+        error={renameError}
+        maxLength={120}
+        onConfirm={(value) => void renameDevice(value)}
+        onCancel={() => {
+          if (renameBusy) return;
+          setEditingDevice(null);
+          setRenameError(null);
+        }}
+      />
     </View>
   );
 }
@@ -152,10 +173,12 @@ export default function DevicesScreen() {
 function CompactDeviceCard({
   device,
   petName,
+  onEditName,
   onPress,
 }: {
   device: Device;
   petName?: string;
+  onEditName: () => void;
   onPress: () => void;
 }) {
   const state = resolveDeviceStatus(device);
@@ -179,7 +202,21 @@ function CompactDeviceCard({
         <Text style={styles.deviceInitial}>{deviceTypeLabel(device.deviceType).slice(0, 1)}</Text>
       </View>
       <View style={styles.deviceCopy}>
-        <Text selectable numberOfLines={1} style={styles.deviceName}>{device.deviceName || device.deviceSn}</Text>
+        <View style={styles.deviceNameRow}>
+          <Text selectable numberOfLines={1} style={styles.deviceName}>{device.deviceName || device.deviceSn}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`编辑设备 ${device.deviceName || device.deviceSn} 的名称`}
+            hitSlop={8}
+            style={({ pressed }) => [styles.editNameButton, pressed && styles.pressed]}
+            onPress={(event) => {
+              event.stopPropagation();
+              onEditName();
+            }}
+          >
+            <Ionicons name="pencil-outline" size={15} color={colors.greenDark} />
+          </Pressable>
+        </View>
         <Text numberOfLines={1} style={styles.deviceMeta}>{deviceTypeLabel(device.deviceType)}{petName ? ` · 已关联 ${petName}` : ''}</Text>
         <View style={styles.pills}>
           <StatusPill tone={connected ? 'ok' : 'muted'} label={connected ? '已连接' : bluetoothLabel(state.bluetooth)} />
@@ -200,31 +237,6 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle?: string })
       <Text style={styles.sectionTitle}>{title}</Text>
       {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
     </View>
-  );
-}
-
-function QuickControl({ icon, title, description, disabled, onPress }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  description: string;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={disabled ? `${title}，尚未绑定` : title}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      style={({ pressed }) => [styles.quickCard, disabled && styles.disabled, pressed && styles.cardPressed]}
-      onPress={onPress}
-    >
-      <View style={styles.quickIcon}><Ionicons name={icon} size={19} color={colors.indigo} /></View>
-      <View style={styles.quickCopy}>
-        <Text style={styles.quickTitle}>{title}</Text>
-        <Text style={styles.quickDescription}>{disabled ? '尚未绑定设备' : description}</Text>
-      </View>
-    </Pressable>
   );
 }
 
@@ -277,18 +289,13 @@ const styles = StyleSheet.create({
   deviceIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.indigoSoft },
   deviceInitial: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '900' },
   deviceCopy: { flex: 1, minWidth: 0, gap: 2 },
-  deviceName: { color: colors.ink, fontSize: fontSize.small, fontWeight: '900' },
+  deviceNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  deviceName: { flexShrink: 1, color: colors.ink, fontSize: fontSize.small, fontWeight: '900' },
+  editNameButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: colors.lineStrong, backgroundColor: colors.mint },
   deviceMeta: { color: colors.muted, fontSize: 11 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingTop: 3 },
   deviceAction: { flexDirection: 'row', alignItems: 'center', gap: 1, paddingHorizontal: 9, minHeight: 32, borderRadius: radius.sm, backgroundColor: colors.green },
   controlText: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  quickRow: { flexDirection: 'row', gap: spacing.sm },
-  quickCard: { flex: 1, minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.panel },
-  disabled: { opacity: 0.48 },
-  quickIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.indigoSoft },
-  quickCopy: { flex: 1, gap: 2 },
-  quickTitle: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '900' },
-  quickDescription: { color: colors.muted, fontSize: 10, lineHeight: 14 },
   summaryCard: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.panel },
   summaryTitle: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '900' },
   summaryRow: { flexDirection: 'row', alignItems: 'center' },

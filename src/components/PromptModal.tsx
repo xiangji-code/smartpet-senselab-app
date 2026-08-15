@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, fontSize, radius, spacing } from '../theme/theme';
 
@@ -11,6 +11,9 @@ export function PromptModal({
   initialValue = '',
   confirmText = '保存',
   allowEmpty = false,
+  busy = false,
+  error,
+  maxLength,
   onConfirm,
   onCancel,
 }: {
@@ -20,6 +23,9 @@ export function PromptModal({
   initialValue?: string;
   confirmText?: string;
   allowEmpty?: boolean;
+  busy?: boolean;
+  error?: string | null;
+  maxLength?: number;
   onConfirm: (value: string) => void;
   onCancel: () => void;
 }) {
@@ -50,17 +56,22 @@ export function PromptModal({
             placeholderTextColor={colors.muted}
             value={value}
             onChangeText={setValue}
+            editable={!busy}
+            maxLength={maxLength}
             autoFocus
           />
+          {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="取消"
+              accessibilityState={{ disabled: busy }}
               style={({ pressed }) => [
                 styles.btn,
                 styles.cancel,
                 pressed && styles.cancelPressed,
               ]}
+              disabled={busy}
               onPress={onCancel}
             >
               <Text style={styles.cancelText}>取消</Text>
@@ -68,17 +79,17 @@ export function PromptModal({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={confirmText}
-              accessibilityState={{ disabled: !canConfirm }}
+              accessibilityState={{ disabled: !canConfirm || busy, busy }}
               style={({ pressed }) => [
                 styles.btn,
                 styles.confirm,
-                !canConfirm && styles.disabled,
+                (!canConfirm || busy) && styles.disabled,
                 pressed && styles.confirmPressed,
               ]}
-              disabled={!canConfirm}
+              disabled={!canConfirm || busy}
               onPress={() => onConfirm(value.trim())}
             >
-              <Text style={styles.confirmText}>{confirmText}</Text>
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmText}>{confirmText}</Text>}
             </Pressable>
           </View>
         </Pressable>
@@ -113,6 +124,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
     backgroundColor: '#fff',
   },
+  error: { color: colors.red, fontSize: fontSize.tiny, lineHeight: 18 },
   actions: { flexDirection: 'row', gap: spacing.md },
   btn: {
     flex: 1,
