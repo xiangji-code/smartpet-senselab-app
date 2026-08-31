@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import {
+  Alert,
   Pressable,
   Platform,
   RefreshControl,
@@ -51,8 +52,6 @@ export default function DevicesScreen() {
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   useSyncExternalStore(
     subscribeBleConnections,
     getBleConnectionsSnapshot,
@@ -77,7 +76,6 @@ export default function DevicesScreen() {
 
   const openDelete = (target: DeleteTarget) => {
     if (Platform.OS === 'android') Vibration.vibrate(12);
-    setDeleteError(null);
     setDeleteTarget(target);
   };
 
@@ -97,14 +95,14 @@ export default function DevicesScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget || deleteBusy) return;
-    setDeleteBusy(true);
-    setDeleteError(null);
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
     try {
-      if (deleteTarget.kind === 'pet') {
-        await petsApi.deactivate(deleteTarget.pet.id);
+      if (target.kind === 'pet') {
+        await petsApi.deactivate(target.pet.id);
       } else {
-        const { device } = deleteTarget;
+        const { device } = target;
         const connection = getLatestConnectedSmartPetDevice({
           deviceSn: device.deviceSn,
           deviceName: device.deviceName,
@@ -117,18 +115,18 @@ export default function DevicesScreen() {
         }
         await disconnectSmartPetDevice(connection?.id);
       }
-      setDeleteTarget(null);
       await reload();
     } catch (cause) {
-      setDeleteError(
-        cause instanceof ApiError
-          ? cause.message
-          : deleteTarget.kind === 'pet'
-            ? '删除宠物失败，请稍后重试'
-            : '删除设备失败，请稍后重试',
+      const action =
+        target.kind === 'pet'
+          ? '删除宠物'
+          : target.device.bindStatus === 'pending_verification'
+            ? '取消添加设备'
+            : '解绑设备';
+      Alert.alert(
+        `${action}失败`,
+        cause instanceof ApiError ? cause.message : `${action}失败，请稍后重试`,
       );
-    } finally {
-      setDeleteBusy(false);
     }
   };
 
@@ -262,15 +260,11 @@ export default function DevicesScreen() {
       <ConfirmModal
         visible={deleteTarget !== null}
         title={deleteDialog.title}
-        message={deleteError ? `${deleteError}\n\n${deleteDialog.message}` : deleteDialog.message}
-        confirmText={deleteBusy ? '处理中…' : deleteDialog.confirmText}
+        message={deleteDialog.message}
+        confirmText={deleteDialog.confirmText}
         destructive
         onConfirm={() => void confirmDelete()}
-        onCancel={() => {
-          if (deleteBusy) return;
-          setDeleteTarget(null);
-          setDeleteError(null);
-        }}
+        onCancel={() => setDeleteTarget(null)}
       />
     </View>
   );
