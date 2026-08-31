@@ -25,14 +25,27 @@ describe('BleTxListenerCoordinator', () => {
     releaseSecond();
   });
 
+  it('allows different devices to use their TX channels concurrently', () => {
+    const coordinator = new BleTxListenerCoordinator();
+    const releaseFirst = coordinator.acquire('device-1', '设备数据接收');
+    const releaseSecond = coordinator.acquire('device-2', '设备控制');
+
+    expect(coordinator.activePurpose('device-1')).toBe('设备数据接收');
+    expect(coordinator.activePurpose('device-2')).toBe('设备控制');
+
+    releaseFirst();
+    releaseSecond();
+  });
+
   it('exposes the active purpose for immediate user-facing busy feedback', () => {
     const coordinator = new BleTxListenerCoordinator();
-    expect(coordinator.activePurpose()).toBeNull();
+    expect(coordinator.activePurpose('device-1')).toBeNull();
 
     const release = coordinator.acquire('device-1', '设备数据接收');
-    expect(coordinator.activePurpose()).toBe('设备数据接收');
+    expect(coordinator.activePurpose('device-1')).toBe('设备数据接收');
+    expect(coordinator.activePurpose('device-2')).toBeNull();
 
     release();
-    expect(coordinator.activePurpose()).toBeNull();
+    expect(coordinator.activePurpose('device-1')).toBeNull();
   });
 });

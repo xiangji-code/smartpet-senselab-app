@@ -143,20 +143,20 @@ interface NativeSessionOptions {
 }
 
 let nativeManager: BleManager | null = null;
-let activeNativeSession: NativeSession | null = null;
+const activeNativeSessions = new Map<string, NativeSession>();
 let pendingNativeSession: {
   targetKey: string;
   promise: Promise<NativeSession | null>;
 } | null = null;
 let cancelForegroundScan: (() => void) | null = null;
-let latestConnectedDevice: { targetKey: string; device: BleConnectedDevice } | null = null;
+const latestConnectedDevices = new Map<string, BleConnectedDevice>();
 const txListenerCoordinator = new BleTxListenerCoordinator();
 
 export async function connectSmartPetDevice(target: BleScanTarget): Promise<BleConnectedDevice> {
   const native = await createNativeSession(target);
   if (!native) {
     const connected = mockConnect(target);
-    latestConnectedDevice = { targetKey: getTargetKey(target), device: connected };
+    latestConnectedDevices.set(getTargetKey(target), connected);
     return connected;
   }
 
@@ -168,14 +168,13 @@ export async function connectSmartPetDevice(target: BleScanTarget): Promise<BleC
     mode: 'native',
     advertisement: native.advertisement,
   };
-  latestConnectedDevice = { targetKey: getTargetKey(target), device: connected };
+  latestConnectedDevices.set(getTargetKey(target), connected);
   return connected;
 }
 
 /** Returns the latest real advertisement snapshot for the currently selected device. */
 export function getLatestConnectedSmartPetDevice(target: BleScanTarget): BleConnectedDevice | null {
-  if (!latestConnectedDevice || latestConnectedDevice.targetKey !== getTargetKey(target)) return null;
-  return latestConnectedDevice.device;
+  return latestConnectedDevices.get(getTargetKey(target)) ?? null;
 }
 
 /** Verifies that the remembered native BLE session is still connected. */
@@ -187,31 +186,30 @@ export async function getActiveConnectedSmartPetDevice(
   if (remembered.mode === 'mock') return remembered;
 
   const targetKey = getTargetKey(target);
-  if (!nativeManager || !activeNativeSession || activeNativeSession.targetKey !== targetKey) {
-    latestConnectedDevice = null;
+  const session = activeNativeSessions.get(targetKey);
+  if (!nativeManager || !session) {
+    latestConnectedDevices.delete(targetKey);
     return null;
   }
 
   const connected = await nativeManager.isDeviceConnected(remembered.id).catch(() => false);
   if (connected) return remembered;
 
-  activeNativeSession = null;
-  latestConnectedDevice = null;
+  activeNativeSessions.delete(targetKey);
+  latestConnectedDevices.delete(targetKey);
   return null;
 }
 
 export async function disconnectSmartPetDevice(deviceId?: string): Promise<void> {
-  if (!nativeManager) return;
+  if (!nativeManager || !deviceId) return;
 
-  const activeDeviceId = activeNativeSession?.device.id;
-  const id = deviceId ?? activeDeviceId;
-  if (!id) return;
-
-  const connected = await nativeManager.isDeviceConnected(id).catch(() => false);
-  if (connected) await nativeManager.cancelDeviceConnection(id).catch(() => null);
-  if (!deviceId || activeDeviceId === id) {
-    activeNativeSession = null;
-    latestConnectedDevice = null;
+  const connected = await nativeManager.isDeviceConnected(deviceId).catch(() => false);
+  if (connected) await nativeManager.cancelDeviceConnection(deviceId).catch(() => null);
+  for (const [targetKey, session] of activeNativeSessions) {
+    if (session.device.id !== deviceId) continue;
+    activeNativeSessions.delete(targetKey);
+    latestConnectedDevices.delete(targetKey);
+    break;
   }
 }
 
@@ -225,13 +223,13 @@ export async function scanForForegroundPendingDevice(
 
   await ensureBluetoothPermissions();
   const manager = getNativeManager();
-  if (activeNativeSession) {
+  for (const [targetKey, session] of activeNativeSessions) {
     const connected = await manager
-      .isDeviceConnected(activeNativeSession.device.id)
+      .isDeviceConnected(session.device.id)
       .catch(() => false);
-    if (connected) return null;
-    activeNativeSession = null;
-    latestConnectedDevice = null;
+    if (connected) continue;
+    activeNativeSessions.delete(targetKey);
+    latestConnectedDevices.delete(targetKey);
   }
   stopForegroundSmartPetScan();
 
@@ -284,15 +282,6 @@ export async function sendTrainerBleCommand(
   intensity?: number,
   onPhase?: (phase: TrainerCommandPhase) => void,
 ): Promise<BleTrainerCommandResult> {
-  const activePurpose = txListenerCoordinator.activePurpose();
-  if (activePurpose) {
-    throw new Error(
-      activePurpose === '设备数据接收'
-        ? '正在接收设备数据，请稍后再发送控制指令'
-        : `设备正在进行${activePurpose}，请稍后再试`,
-    );
-  }
-
   if (Platform.OS === 'web') return mockTrainerCommand(target, kind, enabled, intensity);
 
   let native: NativeSession | null = null;
@@ -302,7 +291,7 @@ export async function sendTrainerBleCommand(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (attempt > 0) {
       onPhase?.('reconnecting');
-      await disconnectSmartPetDevice();
+      await disconnectNativeSessionByTargetKey(getTargetKey(target));
     }
     try {
       native = await createNativeSession(target, {
@@ -329,8 +318,17 @@ export async function sendTrainerBleCommand(
   }
 
   if (!native) {
-    await disconnectSmartPetDevice();
+    await disconnectNativeSessionByTargetKey(getTargetKey(target));
     throw trainerPreparationError(preparationError);
+  }
+
+  const activePurpose = txListenerCoordinator.activePurpose(native.device.id);
+  if (activePurpose) {
+    throw new Error(
+      activePurpose === '设备数据接收'
+        ? '正在接收设备数据，请稍后再发送控制指令'
+        : `设备正在进行${activePurpose}，请稍后再试`,
+    );
   }
 
   onPhase?.('sending');
@@ -658,8 +656,6 @@ async function openNativeSession(
   );
   if (!device) throw new Error('未扫描到与绑定信息匹配的蓝牙设备');
   const advertisement = parseServiceDataAdvertisement(device.serviceData);
-  await disconnectSmartPetDevice();
-
   options.onPhase?.('connecting');
   let connected = await manager.connectToDevice(device.id, {
     timeout: options.connectTimeoutMs ?? BLE_TRANSFER.connectTimeoutMs,
@@ -670,18 +666,30 @@ async function openNativeSession(
       .requestMTUForDevice(connected.id, BLE_TRANSFER.targetMtuAndroid)
       .catch(() => connected);
   }
-  activeNativeSession = { manager, device: connected, targetKey, advertisement };
-  return activeNativeSession;
+  const session = { manager, device: connected, targetKey, advertisement };
+  activeNativeSessions.set(targetKey, session);
+  return session;
 }
 
 async function getReusableNativeSession(manager: BleManager, targetKey: string): Promise<NativeSession | null> {
-  if (!activeNativeSession || activeNativeSession.targetKey !== targetKey) return null;
+  const session = activeNativeSessions.get(targetKey);
+  if (!session) return null;
 
-  const connected = await manager.isDeviceConnected(activeNativeSession.device.id).catch(() => false);
-  if (connected) return activeNativeSession;
+  const connected = await manager.isDeviceConnected(session.device.id).catch(() => false);
+  if (connected) return session;
 
-  activeNativeSession = null;
+  activeNativeSessions.delete(targetKey);
+  latestConnectedDevices.delete(targetKey);
   return null;
+}
+
+async function disconnectNativeSessionByTargetKey(targetKey: string): Promise<void> {
+  const session = activeNativeSessions.get(targetKey);
+  if (!session) {
+    latestConnectedDevices.delete(targetKey);
+    return;
+  }
+  await disconnectSmartPetDevice(session.device.id);
 }
 
 function getNativeManager(): BleManager {
@@ -1239,11 +1247,9 @@ function updateSessionPending(session: NativeSession, dataPending: boolean): Sma
     rawStatusHex: rawBytes.join(' '),
   };
   session.advertisement = advertisement;
-  if (latestConnectedDevice?.targetKey === session.targetKey) {
-    latestConnectedDevice = {
-      ...latestConnectedDevice,
-      device: { ...latestConnectedDevice.device, advertisement },
-    };
+  const connected = latestConnectedDevices.get(session.targetKey);
+  if (connected) {
+    latestConnectedDevices.set(session.targetKey, { ...connected, advertisement });
   }
   return advertisement;
 }
