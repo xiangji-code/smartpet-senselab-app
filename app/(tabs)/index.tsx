@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -19,10 +19,13 @@ import { devicesApi } from '../../src/api/devices';
 import { InlineError } from '../../src/components/inline-error';
 import { PromptModal } from '../../src/components/PromptModal';
 import { StatusPill } from '../../src/components/StatusPill';
-import { getLatestConnectedSmartPetDevice } from '../../src/ble/smartPetBle';
+import {
+  getBleConnectionsSnapshot,
+  getLatestConnectedSmartPetDevice,
+  subscribeBleConnections,
+} from '../../src/ble/smartPetBle';
 import { useDevicesWithPets } from '../../src/hooks/useDevicesWithPets';
 import {
-  bluetoothLabel,
   deviceTypeLabel,
   onlineLabel,
   resolveDeviceStatus,
@@ -38,6 +41,11 @@ export default function DevicesScreen() {
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  useSyncExternalStore(
+    subscribeBleConnections,
+    getBleConnectionsSnapshot,
+    getBleConnectionsSnapshot,
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -45,7 +53,10 @@ export default function DevicesScreen() {
     }, [reload]),
   );
 
-  const boundDevices = devices.filter((device) => device.bindStatus === 'bound');
+  const connectedDeviceCount = devices.reduce(
+    (count, device) => count + (isDeviceBleConnected(device) ? 1 : 0),
+    0,
+  );
   const pets = Object.values(petById);
   const openRename = (device: Device) => {
     setRenameError(null);
@@ -120,6 +131,22 @@ export default function DevicesScreen() {
                 <Ionicons name="add" size={17} color="#fff" /><Text style={styles.sectionAddText}>添加</Text>
               </Pressable>
             </View>
+            {devices.length > 0 ? (
+              <View
+                accessible
+                accessibilityLabel={`蓝牙已连接 ${connectedDeviceCount}/${devices.length} 台`}
+                accessibilityLiveRegion="polite"
+                style={styles.bleSummary}
+              >
+                <View style={styles.bleSummaryLabel}>
+                  <View style={styles.bleSummaryIcon}>
+                    <Ionicons name="bluetooth-outline" size={17} color={colors.greenDark} />
+                  </View>
+                  <Text style={styles.bleSummaryText}>蓝牙已连接</Text>
+                </View>
+                <Text style={styles.bleSummaryCount}>{connectedDeviceCount}/{devices.length} 台</Text>
+              </View>
+            ) : null}
             {devices.length === 0 ? (
               <FeedbackState icon="hardware-chip-outline" title="还没有绑定设备" description="扫描二维码或输入设备码开始添加" actionLabel="添加设备" onAction={() => router.push(href('/(tabs)/bind'))} />
             ) : (
@@ -179,11 +206,12 @@ function CompactDeviceCard({
   const advertisement = connection?.mode === 'native' ? connection.advertisement : null;
   const battery = advertisement?.batteryLevel ?? state.battery;
   const connected = connection?.mode === 'native';
+  const connectionLabel = connected ? '蓝牙已连接' : '蓝牙未连接';
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`查看设备 ${device.deviceName || device.deviceSn}`}
+      accessibilityLabel={`查看设备 ${device.deviceName || device.deviceSn}，${connectionLabel}`}
       style={({ pressed }) => [styles.deviceCard, pressed && styles.cardPressed]}
       onPress={onPress}
     >
@@ -208,7 +236,7 @@ function CompactDeviceCard({
         </View>
         <Text numberOfLines={1} style={styles.deviceMeta}>{deviceTypeLabel(device.deviceType)}{petName ? ` · 已关联 ${petName}` : ''}</Text>
         <View style={styles.pills}>
-          <StatusPill tone={connected ? 'ok' : 'muted'} label={connected ? '已连接' : bluetoothLabel(state.bluetooth)} />
+          <StatusPill tone={connected ? 'ok' : 'muted'} label={connectionLabel} />
           <StatusPill tone={battery == null ? 'muted' : battery < 20 ? 'bad' : 'ok'} label={battery == null ? '电量未知' : `${battery}% 电量`} />
         </View>
       </View>
@@ -227,6 +255,14 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle?: string })
       {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
     </View>
   );
+}
+
+function isDeviceBleConnected(device: Device): boolean {
+  return getLatestConnectedSmartPetDevice({
+    deviceSn: device.deviceSn,
+    deviceName: device.deviceName,
+    deviceType: device.deviceType,
+  })?.mode === 'native';
 }
 
 function deviceHref(device: Device) {
@@ -263,6 +299,11 @@ const styles = StyleSheet.create({
   sectionAddText: { color: '#fff', fontSize: fontSize.tiny, fontWeight: '800' },
   sectionTitle: { color: colors.indigo, fontSize: fontSize.body, fontWeight: '900' },
   sectionSubtitle: { color: colors.muted, fontSize: fontSize.tiny },
+  bleSummary: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.mint },
+  bleSummaryLabel: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  bleSummaryIcon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.panel },
+  bleSummaryText: { flexShrink: 1, color: colors.greenDark, fontSize: fontSize.small, fontWeight: '800' },
+  bleSummaryCount: { color: colors.indigo, fontSize: fontSize.body, fontWeight: '900', fontVariant: ['tabular-nums'] },
   deviceList: { gap: spacing.sm },
   deviceCard: { minHeight: 92, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.panel },
   cardPressed: { backgroundColor: colors.surfaceAlt, borderColor: colors.lineStrong },
