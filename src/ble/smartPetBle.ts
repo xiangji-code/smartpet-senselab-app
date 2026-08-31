@@ -7,6 +7,7 @@ import {
 
 import type { Device as AppDevice, TrainerCommand } from '../types/domain';
 import { persistBleBlock, type StoredBleBlock } from './blockQueue';
+import { BleConnectionEvents } from './connectionEvents';
 import { BleRecoveryTracker } from './recoveryTracker';
 import { createBleTransferDiagnostics } from './transferDiagnostics';
 import { BleTxListenerCoordinator } from './txListenerCoordinator';
@@ -134,6 +135,7 @@ interface NativeSession {
   device: BlePlxDevice;
   targetKey: string;
   advertisement: SmartPetAdvertisement | null;
+  disconnectSubscription: Subscription;
 }
 
 interface NativeSessionOptions {
@@ -150,26 +152,22 @@ let pendingNativeSession: {
 } | null = null;
 let cancelForegroundScan: (() => void) | null = null;
 const latestConnectedDevices = new Map<string, BleConnectedDevice>();
+const bleConnectionEvents = new BleConnectionEvents();
 const txListenerCoordinator = new BleTxListenerCoordinator();
+
+export const subscribeBleConnections = bleConnectionEvents.subscribe;
+export const getBleConnectionsSnapshot = bleConnectionEvents.getSnapshot;
 
 export async function connectSmartPetDevice(target: BleScanTarget): Promise<BleConnectedDevice> {
   const native = await createNativeSession(target);
   if (!native) {
     const connected = mockConnect(target);
-    latestConnectedDevices.set(getTargetKey(target), connected);
+    rememberConnectedDevice(getTargetKey(target), connected);
     return connected;
   }
 
   await native.device.discoverAllServicesAndCharacteristics();
-
-  const connected: BleConnectedDevice = {
-    id: native.device.id,
-    name: native.device.localName ?? native.device.name ?? target.deviceName ?? target.deviceSn,
-    mode: 'native',
-    advertisement: native.advertisement,
-  };
-  latestConnectedDevices.set(getTargetKey(target), connected);
-  return connected;
+  return connectedResult(native, target);
 }
 
 /** Returns the latest real advertisement snapshot for the currently selected device. */
@@ -188,29 +186,27 @@ export async function getActiveConnectedSmartPetDevice(
   const targetKey = getTargetKey(target);
   const session = activeNativeSessions.get(targetKey);
   if (!nativeManager || !session) {
-    latestConnectedDevices.delete(targetKey);
+    forgetConnectedDevice(targetKey);
     return null;
   }
 
   const connected = await nativeManager.isDeviceConnected(remembered.id).catch(() => false);
   if (connected) return remembered;
 
-  activeNativeSessions.delete(targetKey);
-  latestConnectedDevices.delete(targetKey);
+  dropNativeSession(targetKey);
   return null;
 }
 
 export async function disconnectSmartPetDevice(deviceId?: string): Promise<void> {
   if (!nativeManager || !deviceId) return;
 
-  const connected = await nativeManager.isDeviceConnected(deviceId).catch(() => false);
-  if (connected) await nativeManager.cancelDeviceConnection(deviceId).catch(() => null);
   for (const [targetKey, session] of activeNativeSessions) {
     if (session.device.id !== deviceId) continue;
-    activeNativeSessions.delete(targetKey);
-    latestConnectedDevices.delete(targetKey);
+    dropNativeSession(targetKey);
     break;
   }
+  const connected = await nativeManager.isDeviceConnected(deviceId).catch(() => false);
+  if (connected) await nativeManager.cancelDeviceConnection(deviceId).catch(() => null);
 }
 
 /** Scans bound devices without connecting and returns the first pending-data advertisement. */
@@ -228,8 +224,7 @@ export async function scanForForegroundPendingDevice(
       .isDeviceConnected(session.device.id)
       .catch(() => false);
     if (connected) continue;
-    activeNativeSessions.delete(targetKey);
-    latestConnectedDevices.delete(targetKey);
+    dropNativeSession(targetKey);
   }
   stopForegroundSmartPetScan();
 
@@ -666,8 +661,14 @@ async function openNativeSession(
       .requestMTUForDevice(connected.id, BLE_TRANSFER.targetMtuAndroid)
       .catch(() => connected);
   }
-  const session = { manager, device: connected, targetKey, advertisement };
+  let session: NativeSession;
+  const disconnectSubscription = manager.onDeviceDisconnected(connected.id, () => {
+    if (activeNativeSessions.get(targetKey)?.device.id !== connected.id) return;
+    dropNativeSession(targetKey);
+  });
+  session = { manager, device: connected, targetKey, advertisement, disconnectSubscription };
   activeNativeSessions.set(targetKey, session);
+  rememberConnectedDevice(targetKey, connectedResult(session, target));
   return session;
 }
 
@@ -678,15 +679,14 @@ async function getReusableNativeSession(manager: BleManager, targetKey: string):
   const connected = await manager.isDeviceConnected(session.device.id).catch(() => false);
   if (connected) return session;
 
-  activeNativeSessions.delete(targetKey);
-  latestConnectedDevices.delete(targetKey);
+  dropNativeSession(targetKey);
   return null;
 }
 
 async function disconnectNativeSessionByTargetKey(targetKey: string): Promise<void> {
   const session = activeNativeSessions.get(targetKey);
   if (!session) {
-    latestConnectedDevices.delete(targetKey);
+    forgetConnectedDevice(targetKey);
     return;
   }
   await disconnectSmartPetDevice(session.device.id);
@@ -1249,7 +1249,7 @@ function updateSessionPending(session: NativeSession, dataPending: boolean): Sma
   session.advertisement = advertisement;
   const connected = latestConnectedDevices.get(session.targetKey);
   if (connected) {
-    latestConnectedDevices.set(session.targetKey, { ...connected, advertisement });
+    rememberConnectedDevice(session.targetKey, { ...connected, advertisement });
   }
   return advertisement;
 }
@@ -1288,4 +1288,20 @@ function normalizeUuid(value?: string | null): string {
 
 function getTargetKey(target: BleScanTarget): string {
   return target.deviceSn.trim().toUpperCase();
+}
+
+function rememberConnectedDevice(targetKey: string, device: BleConnectedDevice): void {
+  latestConnectedDevices.set(targetKey, device);
+  bleConnectionEvents.changed();
+}
+
+function forgetConnectedDevice(targetKey: string): void {
+  if (latestConnectedDevices.delete(targetKey)) bleConnectionEvents.changed();
+}
+
+function dropNativeSession(targetKey: string): void {
+  const session = activeNativeSessions.get(targetKey);
+  session?.disconnectSubscription.remove();
+  activeNativeSessions.delete(targetKey);
+  forgetConnectedDevice(targetKey);
 }
