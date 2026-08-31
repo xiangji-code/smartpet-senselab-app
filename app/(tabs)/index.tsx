@@ -4,11 +4,13 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import {
   Pressable,
+  Platform,
   RefreshControl,
   Image,
   ScrollView,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -74,6 +76,7 @@ export default function DevicesScreen() {
   };
 
   const openDelete = (target: DeleteTarget) => {
+    if (Platform.OS === 'android') Vibration.vibrate(12);
     setDeleteError(null);
     setDeleteTarget(target);
   };

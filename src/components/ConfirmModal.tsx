@@ -1,4 +1,5 @@
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fontSize, radius, spacing } from '../theme/theme';
 
@@ -22,67 +23,158 @@ export function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const [rendered, setRendered] = useState(visible);
+  const renderedRef = useRef(visible);
+  const backdropOpacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const cardProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const content = useRef({ title, message, confirmText, cancelText });
+  if (visible) content.current = { title, message, confirmText, cancelText };
+
+  useEffect(() => {
+    backdropOpacity.stopAnimation();
+    cardProgress.stopAnimation();
+
+    if (visible) {
+      renderedRef.current = true;
+      setRendered(true);
+      backdropOpacity.setValue(0);
+      cardProgress.setValue(0);
+      Animated.parallel([
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: 150,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardProgress, {
+          toValue: 1,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
+
+    if (!renderedRef.current) return;
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 110,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardProgress, {
+        toValue: 0,
+        duration: 120,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      renderedRef.current = false;
+      setRendered(false);
+    });
+  }, [backdropOpacity, cardProgress, visible]);
+
+  const cardAnimatedStyle = {
+    opacity: cardProgress,
+    transform: [
+      {
+        translateY: cardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [10, 0],
+        }),
+      },
+      {
+        scale: cardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.97, 1],
+        }),
+      },
+    ],
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable style={styles.backdrop} onPress={onCancel}>
-        <Pressable
-          accessibilityViewIsModal
-          accessibilityLabel={title}
-          onAccessibilityEscape={onCancel}
-          style={styles.card}
-          onPress={() => {}}
-        >
-          <Text accessibilityRole="header" style={styles.title}>
-            {title}
-          </Text>
-          {message ? (
-            <Text selectable style={styles.message}>
-              {message}
-            </Text>
-          ) : null}
-          <View style={styles.actions}>
+    <Modal
+      visible={visible || rendered}
+      transparent
+      animationType="none"
+      hardwareAccelerated
+      statusBarTranslucent
+      onRequestClose={onCancel}
+    >
+      <View style={styles.modalRoot}>
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, styles.scrim, { opacity: backdropOpacity }]}
+        />
+        <Pressable style={styles.backdrop} onPress={onCancel}>
+          <Animated.View style={[styles.cardShell, cardAnimatedStyle]}>
             <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={cancelText}
-              style={({ pressed }) => [
-                styles.btn,
-                styles.cancel,
-                pressed && styles.cancelPressed,
-              ]}
-              onPress={onCancel}
+              accessibilityViewIsModal
+              accessibilityLabel={content.current.title}
+              onAccessibilityEscape={onCancel}
+              style={styles.card}
+              onPress={() => {}}
             >
-              <Text style={styles.cancelText}>{cancelText}</Text>
+              <Text accessibilityRole="header" style={styles.title}>
+                {content.current.title}
+              </Text>
+              {content.current.message ? (
+                <Text selectable style={styles.message}>
+                  {content.current.message}
+                </Text>
+              ) : null}
+              <View style={styles.actions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={content.current.cancelText}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.cancel,
+                    pressed && styles.cancelPressed,
+                  ]}
+                  onPress={onCancel}
+                >
+                  <Text style={styles.cancelText}>{content.current.cancelText}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={content.current.confirmText}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    destructive ? styles.destructive : styles.confirm,
+                    pressed && styles.confirmPressed,
+                  ]}
+                  onPress={onConfirm}
+                >
+                  <Text style={styles.confirmText}>{content.current.confirmText}</Text>
+                </Pressable>
+              </View>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={confirmText}
-              style={({ pressed }) => [
-                styles.btn,
-                destructive ? styles.destructive : styles.confirm,
-                pressed && styles.confirmPressed,
-              ]}
-              onPress={onConfirm}
-            >
-              <Text style={styles.confirmText}>{confirmText}</Text>
-            </Pressable>
-          </View>
+          </Animated.View>
         </Pressable>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  modalRoot: { flex: 1 },
+  scrim: { backgroundColor: 'rgba(0,0,0,0.4)' },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
   },
-  card: {
+  cardShell: {
     width: '100%',
     maxWidth: 360,
+  },
+  card: {
+    width: '100%',
     backgroundColor: colors.panel,
     borderRadius: radius.md,
     padding: spacing.lg,
