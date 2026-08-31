@@ -22,7 +22,7 @@ const isWeb = Platform.OS === 'web';
 
 /**
  * 扫码绑定页（issue-02）。
- * 扫描二维码或手动输入 Device SN → 登记待验证设备 → 进入蓝牙验证。
+ * 扫描二维码或手动输入 Device SN → 登记待验证设备 → 进入蓝牙连接。
  * device_type 由后端按 SN 识别，此处不选择。
  */
 export default function BindScreen() {
@@ -37,6 +37,7 @@ export default function BindScreen() {
 
   // 防止相机在一次会话内重复触发绑定
   const lockRef = useRef(false);
+  const inputRef = useRef<TextInput>(null);
 
   function friendlyError(e: unknown): string {
     if (e instanceof ApiError) {
@@ -144,7 +145,7 @@ export default function BindScreen() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="打开相机扫描设备码"
-        accessibilityHint="扫描设备二维码并开始连接验证"
+        accessibilityHint="扫描设备二维码并进入蓝牙连接"
         style={({ pressed }) => [styles.scanCard, pressed && styles.scanCardPressed]}
         onPress={openScanner}
         disabled={submitting}
@@ -161,11 +162,16 @@ export default function BindScreen() {
       <Text style={styles.manualTitle}>或手动输入</Text>
 
       <View style={styles.card}>
-        <View style={styles.inputShell}>
+        <Pressable
+          accessible={false}
+          style={({ pressed }) => [styles.inputShell, pressed && styles.inputShellPressed]}
+          onPress={() => inputRef.current?.focus()}
+        >
           <View style={styles.inputIcon}>
             <Ionicons name="keypad-outline" size={20} color={colors.indigo} />
           </View>
           <TextInput
+            ref={inputRef}
             style={styles.input}
             accessibilityLabel="设备码"
             placeholder="请输入设备码"
@@ -180,7 +186,7 @@ export default function BindScreen() {
             }}
             onSubmitEditing={() => void bind(sn)}
           />
-        </View>
+        </Pressable>
 
         {error ? (
           <Text accessibilityRole="alert" style={styles.error}>
@@ -190,7 +196,7 @@ export default function BindScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="下一步，连接验证"
+          accessibilityLabel="下一步，连接设备"
           accessibilityState={{ disabled: submitting || sn.trim().length === 0, busy: submitting }}
           style={({ pressed }) => [
             styles.btn,
@@ -203,17 +209,14 @@ export default function BindScreen() {
           {submitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.btnText}>下一步：连接验证</Text>
+            <Text style={styles.btnText}>下一步：连接设备</Text>
           )}
         </Pressable>
       </View>
 
       <View style={styles.infoCard}>
         <Ionicons name="information-circle-outline" size={20} color={colors.blue} />
-        <View style={styles.infoCopy}>
-          <Text style={styles.infoTitle}>设备码仅用于绑定验证，不会公开展示</Text>
-          <Text style={styles.infoText}>验证通过后才能进入蓝牙连接流程</Text>
-        </View>
+        <Text style={styles.infoText}>下一步将连接设备蓝牙，确认设备在你身边后完成添加</Text>
       </View>
     </DesignScreen>
   );
@@ -259,6 +262,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     gap: spacing.md,
   },
+  inputShellPressed: { borderColor: colors.green },
   inputIcon: {
     width: 34,
     height: 34,
@@ -288,15 +292,13 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontWeight: '800' },
   infoCard: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing.md,
     padding: spacing.lg,
     borderRadius: radius.md,
     backgroundColor: colors.blueSoft,
   },
-  infoCopy: { flex: 1, gap: spacing.xs },
-  infoTitle: { color: colors.indigo, fontSize: fontSize.small, fontWeight: '800' },
-  infoText: { color: colors.muted, fontSize: fontSize.tiny },
+  infoText: { flex: 1, color: colors.indigo, fontSize: fontSize.small, lineHeight: 20 },
   // 扫码全屏
   scanRoot: { flex: 1, backgroundColor: '#000' },
   scanOverlay: {
