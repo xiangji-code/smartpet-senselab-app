@@ -98,7 +98,18 @@ export default function DevicesScreen() {
           <FeedbackState icon="cloud-offline-outline" title="设备列表加载失败" description={error} actionLabel="重新加载" onAction={() => void reload()} />
         ) : (
           <>
-            <SectionTitle title="我的宠物" subtitle="宠物档案与关联设备" />
+            <View style={styles.sectionTitleRow}>
+              <SectionTitle title="我的宠物" subtitle="宠物档案与关联设备" />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="添加宠物"
+                style={styles.sectionAdd}
+                onPress={() => router.push(href('/pets/new'))}
+              >
+                <Ionicons name="add" size={17} color="#fff" />
+                <Text style={styles.sectionAddText}>添加</Text>
+              </Pressable>
+            </View>
             {pets.length === 0 ? (
               <Pressable style={styles.emptyPetCard} onPress={() => router.push(href('/pets/new'))}>
                 <View style={styles.petAvatar}><Ionicons name="paw-outline" size={22} color={colors.greenDark} /></View>
