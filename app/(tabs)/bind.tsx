@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter, type Href } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -33,11 +35,31 @@ export default function BindScreen() {
   const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keyboardBottomInset, setKeyboardBottomInset] = useState(0);
   const [permission, requestPermission] = useCameraPermissions();
 
   // 防止相机在一次会话内重复触发绑定
   const lockRef = useRef(false);
   const inputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardBottomInset(event.endCoordinates.height);
+      if (inputRef.current?.isFocused()) {
+        requestAnimationFrame(() => {
+          scrollRef.current?.scrollToEnd({ animated: true });
+        });
+      }
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardBottomInset(0);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   function friendlyError(e: unknown): string {
     if (e instanceof ApiError) {
@@ -137,7 +159,12 @@ export default function BindScreen() {
   }
 
   return (
-    <DesignScreen title="添加设备" subtitle="扫描或手动输入设备码">
+    <DesignScreen
+      title="添加设备"
+      subtitle="扫描或手动输入设备码"
+      scrollViewRef={scrollRef}
+      keyboardBottomInset={keyboardBottomInset}
+    >
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>扫描设备二维码</Text>
         <Text style={styles.sectionHint}>二维码通常位于设备背面或包装盒</Text>

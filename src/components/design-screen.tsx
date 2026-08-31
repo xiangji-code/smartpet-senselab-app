@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,6 +12,8 @@ export function DesignScreen({
   action,
   children,
   scrollable = true,
+  scrollViewRef,
+  keyboardBottomInset = 0,
 }: {
   title: string;
   subtitle?: string;
@@ -19,6 +21,8 @@ export function DesignScreen({
   action?: ReactNode;
   children?: ReactNode;
   scrollable?: boolean;
+  scrollViewRef?: Ref<ScrollView>;
+  keyboardBottomInset?: number;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -30,12 +34,16 @@ export function DesignScreen({
       <View style={styles.surface}>
         {scrollable ? (
           <ScrollView
+            ref={scrollViewRef}
             contentInsetAdjustmentBehavior="automatic"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[
               styles.content,
-              { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl },
+              {
+                paddingBottom:
+                  Math.max(insets.bottom, spacing.lg) + spacing.xl + keyboardBottomInset,
+              },
             ]}
           >
             {children}
