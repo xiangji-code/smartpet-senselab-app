@@ -16,10 +16,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FeedbackState } from '../../src/components/feedback-state';
 import { ApiError, authorizedMediaSource } from '../../src/api/client';
 import { devicesApi } from '../../src/api/devices';
+import { petsApi } from '../../src/api/pets';
+import { ConfirmModal } from '../../src/components/ConfirmModal';
 import { InlineError } from '../../src/components/inline-error';
 import { PromptModal } from '../../src/components/PromptModal';
 import { StatusPill } from '../../src/components/StatusPill';
 import {
+  disconnectSmartPetDevice,
   getBleConnectionsSnapshot,
   getLatestConnectedSmartPetDevice,
   subscribeBleConnections,
@@ -31,8 +34,12 @@ import {
   resolveDeviceStatus,
 } from '../../src/lib/deviceDisplay';
 import { href } from '../../src/lib/nav';
-import type { Device } from '../../src/types/domain';
+import type { Device, PetProfile } from '../../src/types/domain';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
+
+type DeleteTarget =
+  | { kind: 'pet'; pet: PetProfile }
+  | { kind: 'device'; device: Device };
 
 export default function DevicesScreen() {
   const router = useRouter();
@@ -41,6 +48,9 @@ export default function DevicesScreen() {
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   useSyncExternalStore(
     subscribeBleConnections,
     getBleConnectionsSnapshot,
@@ -63,6 +73,11 @@ export default function DevicesScreen() {
     setEditingDevice(device);
   };
 
+  const openDelete = (target: DeleteTarget) => {
+    setDeleteError(null);
+    setDeleteTarget(target);
+  };
+
   const renameDevice = async (deviceName: string) => {
     if (!editingDevice || renameBusy) return;
     setRenameBusy(true);
@@ -77,6 +92,44 @@ export default function DevicesScreen() {
       setRenameBusy(false);
     }
   };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      if (deleteTarget.kind === 'pet') {
+        await petsApi.deactivate(deleteTarget.pet.id);
+      } else {
+        const { device } = deleteTarget;
+        const connection = getLatestConnectedSmartPetDevice({
+          deviceSn: device.deviceSn,
+          deviceName: device.deviceName,
+          deviceType: device.deviceType,
+        });
+        if (device.bindStatus === 'pending_verification') {
+          await devicesApi.cancelVerification(device.id);
+        } else {
+          await devicesApi.unbind(device.id);
+        }
+        await disconnectSmartPetDevice(connection?.id);
+      }
+      setDeleteTarget(null);
+      await reload();
+    } catch (cause) {
+      setDeleteError(
+        cause instanceof ApiError
+          ? cause.message
+          : deleteTarget.kind === 'pet'
+            ? '删除宠物失败，请稍后重试'
+            : '删除设备失败，请稍后重试',
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  const deleteDialog = getDeleteDialog(deleteTarget);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -122,7 +175,16 @@ export default function DevicesScreen() {
             ) : (
               <View style={styles.petList}>
                 {pets.map((pet) => (
-                  <Pressable key={pet.id} style={styles.petCard} onPress={() => router.push(href(`/pets/${pet.id}`))}>
+                  <Pressable
+                    key={pet.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`查看宠物 ${pet.name}`}
+                    accessibilityHint="长按可删除宠物档案"
+                    delayLongPress={600}
+                    style={({ pressed }) => [styles.petCard, pressed && styles.cardPressed]}
+                    onPress={() => router.push(href(`/pets/${pet.id}`))}
+                    onLongPress={() => openDelete({ kind: 'pet', pet })}
+                  >
                     <View style={styles.petAvatar}>
                       {pet.avatarUrl ? <Image source={authorizedMediaSource(pet.avatarUrl)} style={styles.petAvatarImage} /> : <Text style={styles.petInitials}>{initials(pet.name)}</Text>}
                     </View>
@@ -169,6 +231,7 @@ export default function DevicesScreen() {
                     petName={petNameByDevice[device.id] ?? undefined}
                     onEditName={() => openRename(device)}
                     onPress={() => router.push(deviceHref(device))}
+                    onLongPress={() => openDelete({ kind: 'device', device })}
                   />
                 ))}
               </View>
@@ -193,6 +256,19 @@ export default function DevicesScreen() {
           setRenameError(null);
         }}
       />
+      <ConfirmModal
+        visible={deleteTarget !== null}
+        title={deleteDialog.title}
+        message={deleteError ? `${deleteError}\n\n${deleteDialog.message}` : deleteDialog.message}
+        confirmText={deleteBusy ? '处理中…' : deleteDialog.confirmText}
+        destructive
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => {
+          if (deleteBusy) return;
+          setDeleteTarget(null);
+          setDeleteError(null);
+        }}
+      />
     </View>
   );
 }
@@ -202,11 +278,13 @@ function CompactDeviceCard({
   petName,
   onEditName,
   onPress,
+  onLongPress,
 }: {
   device: Device;
   petName?: string;
   onEditName: () => void;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   const state = resolveDeviceStatus(device);
   const connection = getLatestConnectedSmartPetDevice({
@@ -223,8 +301,11 @@ function CompactDeviceCard({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`查看设备 ${device.deviceName || device.deviceSn}，${connectionLabel}`}
+      accessibilityHint="长按可删除设备"
+      delayLongPress={600}
       style={({ pressed }) => [styles.deviceCard, pressed && styles.cardPressed]}
       onPress={onPress}
+      onLongPress={onLongPress}
     >
       <View style={styles.deviceIcon}>
         <Text style={styles.deviceInitial}>{deviceTypeLabel(device.deviceType).slice(0, 1)}</Text>
@@ -257,6 +338,33 @@ function CompactDeviceCard({
       </View>
     </Pressable>
   );
+}
+
+function getDeleteDialog(target: DeleteTarget | null) {
+  if (!target) {
+    return { title: '', message: '', confirmText: '删除' };
+  }
+  if (target.kind === 'pet') {
+    return {
+      title: '删除宠物档案',
+      message: `确定删除「${target.pet.name}」吗？删除后将不再显示，已有历史记录会保留。`,
+      confirmText: '删除',
+    };
+  }
+
+  const name = target.device.deviceName || target.device.deviceSn || '此设备';
+  if (target.device.bindStatus === 'pending_verification') {
+    return {
+      title: '取消添加设备',
+      message: `确定取消添加「${name}」吗？之后可以重新扫描添加。`,
+      confirmText: '取消添加',
+    };
+  }
+  return {
+    title: '解绑设备',
+    message: `确定解绑「${name}」吗？解绑后设备将从当前账号移除，之后可以重新添加。`,
+    confirmText: '解绑',
+  };
 }
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
