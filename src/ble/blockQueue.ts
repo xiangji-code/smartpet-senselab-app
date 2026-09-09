@@ -16,6 +16,10 @@ export function configureBleQueueOwner(userId: number | null): void {
   activeQueueUserId = userId;
 }
 
+export function getBleQueueOwner(): number | null {
+  return activeQueueUserId;
+}
+
 export interface StoredBleBlock {
   id: string;
   deviceSn: string;

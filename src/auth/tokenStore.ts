@@ -12,6 +12,13 @@ import * as SecureStore from 'expo-secure-store';
 const REFRESH_TOKEN_KEY = 'smartpet.refreshToken';
 
 const isWeb = Platform.OS === 'web';
+let pendingMutation: Promise<void> = Promise.resolve();
+
+function mutate(operation: () => Promise<void>): Promise<void> {
+  const task = pendingMutation.catch(() => undefined).then(operation);
+  pendingMutation = task;
+  return task;
+}
 
 async function setItem(key: string, value: string): Promise<void> {
   if (isWeb) {
@@ -49,7 +56,10 @@ async function removeItem(key: string): Promise<void> {
 }
 
 export const tokenStore = {
-  getRefreshToken: () => getItem(REFRESH_TOKEN_KEY),
-  saveRefreshToken: (token: string) => setItem(REFRESH_TOKEN_KEY, token),
-  clear: () => removeItem(REFRESH_TOKEN_KEY),
+  getRefreshToken: async () => {
+    await pendingMutation.catch(() => undefined);
+    return getItem(REFRESH_TOKEN_KEY);
+  },
+  saveRefreshToken: (token: string) => mutate(() => setItem(REFRESH_TOKEN_KEY, token)),
+  clear: () => mutate(() => removeItem(REFRESH_TOKEN_KEY)),
 };

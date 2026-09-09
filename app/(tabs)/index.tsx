@@ -28,14 +28,15 @@ import {
   disconnectSmartPetDevice,
   getBleConnectionsSnapshot,
   getLatestConnectedSmartPetDevice,
+  getSmartPetBleConnectionStatus,
   subscribeBleConnections,
 } from '../../src/ble/smartPetBle';
 import { useDevicesWithPets } from '../../src/hooks/useDevicesWithPets';
 import {
   deviceTypeLabel,
   onlineLabel,
-  resolveDeviceStatus,
 } from '../../src/lib/deviceDisplay';
+import { describeBleSignal } from '../../src/lib/bleSignal';
 import { href } from '../../src/lib/nav';
 import type { Device, PetProfile } from '../../src/types/domain';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
@@ -113,16 +114,15 @@ export default function DevicesScreen() {
         } else {
           await devicesApi.unbind(device.id);
         }
-        await disconnectSmartPetDevice(connection?.id);
+        await disconnectSmartPetDevice(connection?.id, {
+          deviceSn: device.deviceSn,
+          deviceName: device.deviceName,
+          deviceType: device.deviceType,
+        });
       }
       await reload();
     } catch (cause) {
-      const action =
-        target.kind === 'pet'
-          ? '删除宠物'
-          : target.device.bindStatus === 'pending_verification'
-            ? '取消添加设备'
-            : '解绑设备';
+      const action = target.kind === 'pet' ? '删除宠物' : '解绑设备';
       Alert.alert(
         `${action}失败`,
         cause instanceof ApiError ? cause.message : `${action}失败，请稍后重试`,
@@ -200,7 +200,7 @@ export default function DevicesScreen() {
             )}
 
             <View style={styles.sectionTitleRow}>
-              <SectionTitle title="当前设备" subtitle="查看连接、电量和关联宠物" />
+              <SectionTitle title="当前设备" subtitle="查看连接和关联宠物" />
               <Pressable accessibilityRole="button" accessibilityLabel="添加设备" style={styles.sectionAdd} onPress={() => router.push(href('/(tabs)/bind'))}>
                 <Ionicons name="add" size={17} color="#fff" /><Text style={styles.sectionAddText}>添加</Text>
               </Pressable>
@@ -283,16 +283,24 @@ function CompactDeviceCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const state = resolveDeviceStatus(device);
   const connection = getLatestConnectedSmartPetDevice({
     deviceSn: device.deviceSn,
     deviceName: device.deviceName,
     deviceType: device.deviceType,
   });
-  const advertisement = connection?.mode === 'native' ? connection.advertisement : null;
-  const battery = advertisement?.batteryLevel ?? state.battery;
   const connected = connection?.mode === 'native';
-  const connectionLabel = connected ? '蓝牙已连接' : '蓝牙未连接';
+  const connectionStatus = getSmartPetBleConnectionStatus({
+    deviceSn: device.deviceSn,
+    deviceName: device.deviceName,
+    deviceType: device.deviceType,
+  });
+  const reconnecting = !connected && connectionStatus.state === 'reconnecting';
+  const signal = connected ? describeBleSignal(connectionStatus.rssi) : null;
+  const connectionLabel = connected
+    ? '蓝牙已连接'
+    : reconnecting
+      ? '自动重连中'
+      : '蓝牙未连接';
 
   return (
     <Pressable
@@ -325,12 +333,17 @@ function CompactDeviceCard({
         </View>
         <Text numberOfLines={1} style={styles.deviceMeta}>{deviceTypeLabel(device.deviceType)}{petName ? ` · 已关联 ${petName}` : ''}</Text>
         <View style={styles.pills}>
-          <StatusPill tone={connected ? 'ok' : 'muted'} label={connectionLabel} />
-          <StatusPill tone={battery == null ? 'muted' : battery < 20 ? 'bad' : 'ok'} label={battery == null ? '电量未知' : `${battery}% 电量`} />
+          <StatusPill tone={connected ? 'ok' : reconnecting ? 'warn' : 'muted'} label={connectionLabel} />
+          {connected ? (
+            <StatusPill
+              tone={!signal ? 'muted' : signal.level === 'weak' ? 'bad' : signal.level === 'fair' ? 'warn' : 'ok'}
+              label={signal?.label ?? '信号检测中'}
+            />
+          ) : null}
         </View>
       </View>
       <View style={styles.deviceAction}>
-        <Text style={styles.controlText}>{device.bindStatus === 'pending_verification' ? '继续验证' : '进入控制'}</Text>
+        <Text style={styles.controlText}>进入控制</Text>
         <Ionicons name="chevron-forward" size={15} color="#fff" />
       </View>
     </Pressable>
@@ -350,13 +363,6 @@ function getDeleteDialog(target: DeleteTarget | null) {
   }
 
   const name = target.device.deviceName || target.device.deviceSn || '此设备';
-  if (target.device.bindStatus === 'pending_verification') {
-    return {
-      title: '取消添加设备',
-      message: `确定取消添加「${name}」吗？之后可以重新扫描添加。`,
-      confirmText: '取消添加',
-    };
-  }
   return {
     title: '解绑设备',
     message: `确定解绑「${name}」吗？解绑后设备将从当前账号移除，之后可以重新添加。`,
@@ -382,13 +388,7 @@ function isDeviceBleConnected(device: Device): boolean {
 }
 
 function deviceHref(device: Device) {
-  if (device.bindStatus !== 'pending_verification') return href(`/device/${device.id}`);
-  const query = new URLSearchParams({
-    deviceId: String(device.id),
-    deviceSn: device.deviceSn,
-    deviceName: device.deviceName ?? '',
-  });
-  return href(`/connection-setup?${query.toString()}`);
+  return href(`/device/${device.id}`);
 }
 
 function initials(value: string) {

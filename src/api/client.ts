@@ -7,6 +7,8 @@
  * - 401 时只触发一次并发共享的 refresh，再重放原请求
  */
 
+import { captureSessionScope } from '../auth/sessionScope';
+
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://47.112.12.213';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -76,9 +78,27 @@ export function authorizedMediaSource(url: string): { uri: string; headers?: Rec
 
 async function refreshOnce(): Promise<string | null> {
   if (!refreshPromise) {
-    refreshPromise = refreshAccessToken().finally(() => {
-      refreshPromise = null;
+    const scope = captureSessionScope();
+    const operation = new Promise<string | null>((resolve, reject) => {
+      const finish = (error: Error | null, token: string | null = null) => {
+        clearTimeout(timer);
+        scope.signal.removeEventListener('abort', onAbort);
+        if (error) reject(error);
+        else resolve(token);
+      };
+      const onAbort = () => finish(new ApiError(0, '登录会话已变更', undefined,
+        { kind: 'cancelled', retryable: false }));
+      const timer = setTimeout(() => finish(new ApiError(0, '刷新登录状态超时', undefined,
+        { kind: 'timeout', retryable: true })), DEFAULT_TIMEOUT_MS);
+      scope.signal.addEventListener('abort', onAbort, { once: true });
+      Promise.resolve().then(refreshAccessToken).then(
+        (token) => finish(null, token), (error) => finish(error),
+      );
     });
+    const promise = operation.finally(() => {
+      if (refreshPromise === promise) refreshPromise = null;
+    });
+    refreshPromise = promise;
   }
   return refreshPromise;
 }
@@ -98,6 +118,7 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const scope = captureSessionScope();
   const {
     body,
     auth = true,
@@ -122,8 +143,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   let res: Response;
+  let data: unknown;
   try {
-    res = await fetchWithTimeout(
+    ({ res, data } = await fetchWithTimeout(
       `${API_BASE_URL}${path}`,
       {
         ...rest,
@@ -131,11 +153,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         body: body === undefined ? undefined : JSON.stringify(body),
       },
       timeoutMs,
-    );
+      auth ? scope.signal : undefined,
+    ));
   } catch (cause) {
     const error = normalizeFetchError(cause);
     if (shouldRetry(method, error, _retryAttempt, allowedRetries)) {
       await retryDelay(_retryAttempt);
+      if (auth) scope.assertCurrent();
       return request<T>(path, {
         ...options,
         _retryAttempt: _retryAttempt + 1,
@@ -144,9 +168,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw error;
   }
 
+  if (auth) scope.assertCurrent();
   // 401 → 所有并发请求共享同一次 refresh，成功后只重放一次。
   if (res.status === 401 && auth && !_authRetried) {
     const newToken = await refreshOnce();
+    scope.assertCurrent();
     if (newToken) {
       return request<T>(path, {
         ...options,
@@ -156,12 +182,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
   }
 
-  const data = await readResponse(res);
-
   if (!res.ok) {
     const error = createHttpError(res, data);
     if (shouldRetry(method, error, _retryAttempt, allowedRetries)) {
       await retryDelay(_retryAttempt);
+      if (auth) scope.assertCurrent();
       return request<T>(path, {
         ...options,
         _retryAttempt: _retryAttempt + 1,
@@ -177,25 +202,41 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
-): Promise<Response> {
+  sessionSignal?: AbortSignal,
+): Promise<{ res: Response; data: unknown }> {
   const controller = new AbortController();
   const externalSignal = init.signal;
   let timedOut = false;
 
-  const onExternalAbort = () => controller.abort();
-  if (externalSignal?.aborted) {
+  let rejectAborted: (error: Error) => void = () => undefined;
+  const aborted = new Promise<never>((_, reject) => { rejectAborted = reject; });
+  const onExternalAbort = () => {
     controller.abort();
+    rejectAborted(new Error('Request aborted'));
+  };
+  if (externalSignal?.aborted) {
+    onExternalAbort();
   } else {
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
   }
+  if (sessionSignal?.aborted) onExternalAbort();
+  else sessionSignal?.addEventListener('abort', onExternalAbort, { once: true });
 
   const timer = setTimeout(() => {
     timedOut = true;
-    controller.abort();
+    onExternalAbort();
   }, timeoutMs);
 
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await Promise.race([
+      (async () => {
+        if (controller.signal.aborted) throw new Error('Request aborted');
+        const res = await fetch(url, { ...init, signal: controller.signal });
+        const data = await readResponse(res);
+        return { res, data };
+      })(),
+      aborted,
+    ]);
   } catch (cause) {
     if (timedOut) {
       throw new ApiError(0, '请求超时，请稍后重试', undefined, {
@@ -215,6 +256,7 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
     externalSignal?.removeEventListener('abort', onExternalAbort);
+    sessionSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -331,12 +373,14 @@ async function retryDelay(attempt: number): Promise<void> {
  * multipart/form-data 上传。上传本身不自动重试，避免重复创建服务端数据；
  * 上层现有上传队列负责显式重试。
  */
-async function upload<T>(path: string, form: FormData, retried = false): Promise<T> {
+async function upload<T>(path: string, form: FormData, options: { idempotencyKey?: string } = {}, retried = false): Promise<T> {
+  const scope = captureSessionScope();
   const headers: Record<string, string> = {};
+  if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetchWithTimeout(
+  const { res, data } = await fetchWithTimeout(
     `${API_BASE_URL}${path}`,
     {
       method: 'POST',
@@ -344,16 +388,17 @@ async function upload<T>(path: string, form: FormData, retried = false): Promise
       body: form,
     },
     UPLOAD_TIMEOUT_MS,
+    scope.signal,
   ).catch((cause) => {
     throw normalizeFetchError(cause);
   });
 
   if (res.status === 401 && !retried) {
     const newToken = await refreshOnce();
-    if (newToken) return upload<T>(path, form, true);
+    scope.assertCurrent();
+    if (newToken) return upload<T>(path, form, options, true);
   }
 
-  const data = await readResponse(res);
   if (!res.ok) throw createHttpError(res, data);
   return data as T;
 }

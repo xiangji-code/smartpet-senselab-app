@@ -19,6 +19,8 @@ import { configureAuth } from '../api/client';
 import { authApi, type AuthUser, type RegisterInput } from '../api/auth';
 import { devicesApi } from '../api/devices';
 import { configureBleQueueOwner } from '../ble/blockQueue';
+import { clearSmartPetAccountConnections } from '../ble/smartPetBle';
+import { captureSessionScope, invalidateSessionScope } from './sessionScope';
 import { appCache } from '../cache/cacheStore';
 import { consentStore } from '../consent/consentStore';
 import type { Device } from '../types/domain';
@@ -66,22 +68,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshTokenRef = useRef<string | null>(null);
 
   const clearSession = useCallback(async () => {
+    invalidateSessionScope();
+    const disconnect = clearSmartPetAccountConnections();
     accessTokenRef.current = null;
     refreshTokenRef.current = null;
     configureBleQueueOwner(null);
     setUser(null);
     setDevices([]);
     setSessionRecoveryError(null);
-    await tokenStore.clear();
+    await Promise.all([tokenStore.clear(), disconnect]);
   }, []);
 
   const loadCurrentSession = useCallback(async (consentGrant?: ConsentGrant) => {
+    const scope = captureSessionScope();
     const [me, list] = await Promise.all([
       authApi.getMe(),
       devicesApi.list(),
     ]);
+    scope.assertCurrent();
     if (consentGrant?.dataCollectionConsent) {
       await consentStore.set(me.id, true);
+      scope.assertCurrent();
     }
     configureBleQueueOwner(me.id);
     setUser(me);
@@ -96,13 +103,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     configureAuth(
       () => accessTokenRef.current,
       async () => {
+        const scope = captureSessionScope();
         const refreshToken = refreshTokenRef.current;
         if (!refreshToken) return null;
         try {
           const newAccess = await authApi.refresh(refreshToken);
+          scope.assertCurrent();
           accessTokenRef.current = newAccess;
           return newAccess;
         } catch (error) {
+          scope.assertCurrent();
           if (isCredentialRejected(error)) {
             await clearSession();
             return null;
@@ -114,8 +124,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession]);
 
   const restoreStoredSession = useCallback(async () => {
+    const scope = captureSessionScope();
     try {
       const refreshToken = await tokenStore.getRefreshToken();
+      scope.assertCurrent();
       if (!refreshToken) {
         setSessionRecoveryError(null);
         return;
@@ -123,9 +135,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       refreshTokenRef.current = refreshToken;
       const accessToken = await authApi.refresh(refreshToken);
+      scope.assertCurrent();
       accessTokenRef.current = accessToken;
       await loadCurrentSession();
     } catch (error) {
+      if (scope.signal.aborted) return;
       if (isCredentialRejected(error)) {
         await clearSession();
         return;
@@ -152,13 +166,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const establishSession = useCallback(
     async (accessToken: string, refreshToken: string, consentGrant?: ConsentGrant) => {
+      invalidateSessionScope();
+      const scope = captureSessionScope();
+      accessTokenRef.current = null;
+      refreshTokenRef.current = null;
+      configureBleQueueOwner(null);
+      setUser(null);
+      setDevices([]);
+      await clearSmartPetAccountConnections();
+      scope.assertCurrent();
       accessTokenRef.current = accessToken;
       refreshTokenRef.current = refreshToken;
       setSessionRecoveryError(null);
       try {
         await tokenStore.saveRefreshToken(refreshToken);
+        scope.assertCurrent();
         await loadCurrentSession(consentGrant);
       } catch (error) {
+        scope.assertCurrent();
         if (isCredentialRejected(error)) {
           await clearSession();
         }
@@ -170,7 +195,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string, consent: ConsentGrant) => {
+      const scope = captureSessionScope();
       const { accessToken, refreshToken } = await authApi.login(email, password);
+      scope.assertCurrent();
       await establishSession(accessToken, refreshToken, consent);
     },
     [establishSession],
@@ -183,8 +210,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       input: RegisterInput,
       consent: ConsentGrant,
     ) => {
+      const scope = captureSessionScope();
       await authApi.register(email, password, input);
+      scope.assertCurrent();
       const { accessToken, refreshToken } = await authApi.login(email, password);
+      scope.assertCurrent();
       await establishSession(accessToken, refreshToken, consent);
     },
     [establishSession],
@@ -192,6 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     const refreshToken = refreshTokenRef.current;
+    await clearSession();
     if (refreshToken) {
       try {
         await authApi.logout(refreshToken);
@@ -199,7 +230,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 用户明确退出时，即使后端暂时不可用也应完成本地退出。
       }
     }
-    await clearSession();
   }, [clearSession]);
 
   const retrySession = useCallback(async () => {
@@ -213,8 +243,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, restoreStoredSession]);
 
   const refreshDevices = useCallback(async () => {
+    const scope = captureSessionScope();
     if (!accessTokenRef.current) return;
     const list = await devicesApi.list();
+    scope.assertCurrent();
     setDevices(list);
   }, []);
 

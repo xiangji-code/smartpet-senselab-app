@@ -308,10 +308,14 @@ export default function ConnectionSetupScreen() {
                 }
                 label={syncLabel(syncProgress)}
               />
+            ) : !consentReady ? (
+              <StatusPill tone="warn" label="准备监听" />
+            ) : !consent ? (
+              <StatusPill tone="muted" label="监听未开启" />
             ) : foregroundSyncState.isScanning ? (
               <StatusPill tone="warn" label="监听中" />
             ) : (
-              <StatusPill tone="muted" label="等待广播" />
+              <StatusPill tone="ok" label="监听已开启" />
             )
           }
         >
@@ -330,7 +334,7 @@ export default function ConnectionSetupScreen() {
                     : bt === 'connected' && bindingConfirmed
                       ? foregroundSyncState.isScanning
                         ? '正在监听设备广播，有数据时会自动接收'
-                        : '等待下一轮设备广播扫描'
+                        : '待传广播监听已开启，发现数据后会自动接收'
                       : bindingConfirmed
                         ? '蓝牙连接后将自动接收'
                         : '完成蓝牙验证后将自动接收'}

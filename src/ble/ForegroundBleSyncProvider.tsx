@@ -6,11 +6,13 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { useAuth } from '../auth/AuthContext';
 import { useConsent } from '../consent/ConsentContext';
+import { captureSessionScope } from '../auth/sessionScope';
 import type { Device } from '../types/domain';
 import {
   foregroundScanDurationMs,
@@ -18,7 +20,19 @@ import {
 } from './adaptiveScanPolicy';
 import type { AudioUploadProgress, BleUploadResult } from './audioUploadFlow';
 import { receiveAndUploadDeviceData } from './deviceDataSyncFlow';
-import { BleDataFrameDiagnosticError, scanForForegroundPendingDevice, stopForegroundSmartPetScan, type BleScanTarget, type DataSyncProgress } from './smartPetBle';
+import {
+  BleDataFrameDiagnosticError,
+  configureSmartPetAutoReconnect,
+  canAutomaticallyConnectSmartPet,
+  getBleConnectionsSnapshot,
+  hasQueuedSmartPetData,
+  scanForForegroundPendingDevice,
+  stopForegroundSmartPetScan,
+  subscribeBleConnections,
+  verifyActiveSmartPetBleConnections,
+  type BleScanTarget,
+  type DataSyncProgress,
+} from './smartPetBle';
 import type { BleFrameDiagnostic } from './frameDiagnostic';
 import type { SmartPetAdvertisement } from './protocol';
 import { buildBlePullPreview, type BlePullPreview } from './pullPreview';
@@ -63,15 +77,44 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
   const { consent, ready: consentReady } = useConsent();
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const [state, setState] = useState<ForegroundBleSyncState>(initialState);
-  const activeSyncRef = useRef<Promise<void> | null>(null);
+  const activeSyncRef = useRef(new Map<string, Promise<void>>());
+  const bleConnectionsSnapshot = useSyncExternalStore(
+    subscribeBleConnections,
+    getBleConnectionsSnapshot,
+    getBleConnectionsSnapshot,
+  );
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
     return () => subscription.remove();
   }, []);
 
+  useEffect(() => {
+    const targets: BleScanTarget[] = devices.map((device) => ({
+      deviceSn: device.deviceSn,
+      deviceName: device.deviceName,
+      deviceType: device.deviceType,
+    }));
+    void configureSmartPetAutoReconnect({
+      enabled: appState === 'active' && !isLoading && Boolean(user),
+      ownerId: user?.id ?? null,
+      targets,
+    });
+  }, [appState, devices, isLoading, user]);
+
+  useEffect(() => {
+    if (appState !== 'active' || isLoading || !user) return;
+    const timer = setInterval(() => {
+      void verifyActiveSmartPetBleConnections();
+    }, 5_000);
+    return () => clearInterval(timer);
+  }, [appState, isLoading, user]);
+
   const syncDevice = useCallback((device: Device): Promise<void> => {
-    if (activeSyncRef.current) return activeSyncRef.current;
+    const scope = captureSessionScope();
+    const targetKey = device.deviceSn.trim().toUpperCase();
+    const active = activeSyncRef.current.get(targetKey);
+    if (active) return active;
     if (!user) return Promise.resolve();
 
     stopForegroundSmartPetScan();
@@ -98,6 +141,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
             appUserId: user.id,
           },
           onReceiveProgress: (progress) => {
+            if (scope.signal.aborted) return;
             setState((current) => ({
               ...current,
               phase: 'receiving',
@@ -106,6 +150,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
             }));
           },
           onUploadProgress: (progress) => {
+            if (scope.signal.aborted) return;
             setState((current) => ({
               ...current,
               phase: progress.phase === 'error' ? 'error' : 'uploading',
@@ -114,6 +159,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
             }));
           },
           onReceived: (received) => {
+            if (scope.signal.aborted) return;
             receiveFinished = received.completed;
             setState((current) => ({
               ...current,
@@ -131,6 +177,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
         });
 
         const completedAt = Date.now();
+        if (scope.signal.aborted) return;
         setState((current) => ({
           ...current,
           phase: result.upload ? 'complete' : 'empty',
@@ -141,6 +188,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
           completedAt,
         }));
       } catch (error) {
+        if (scope.signal.aborted) return;
         const frameDiagnostic = error instanceof BleDataFrameDiagnosticError ? error.diagnostic : null;
         const detail = error instanceof Error ? error.message : '未知错误';
         setState((current) => ({
@@ -153,11 +201,38 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
         }));
       }
     })().finally(() => {
-      activeSyncRef.current = null;
+      activeSyncRef.current.delete(targetKey);
     });
-    activeSyncRef.current = task;
+    activeSyncRef.current.set(targetKey, task);
     return task;
   }, [user]);
+
+  useEffect(() => {
+    if (
+      appState !== 'active' ||
+      isLoading ||
+      !user ||
+      !consentReady ||
+      !consent
+    ) return;
+    for (const device of devices) {
+      const target: BleScanTarget = {
+        deviceSn: device.deviceSn,
+        deviceName: device.deviceName,
+        deviceType: device.deviceType,
+      };
+      if (hasQueuedSmartPetData(target)) void syncDevice(device);
+    }
+  }, [
+    appState,
+    bleConnectionsSnapshot,
+    consent,
+    consentReady,
+    devices,
+    isLoading,
+    syncDevice,
+    user,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,14 +271,20 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
       let transferAttempted = false;
 
       try {
-        setState((current) => ({ ...current, isScanning: true }));
-        const match = await scanForForegroundPendingDevice(targets, scanDurationMs);
+        const match = await scanForForegroundPendingDevice(
+          targets,
+          scanDurationMs,
+          (isScanning) => {
+            if (!cancelled) setState((current) => ({ ...current, isScanning }));
+          },
+        );
         if (cancelled || !match) return;
 
         const device = devices.find(
           (item) => item.deviceSn.trim().toUpperCase() === match.target.deviceSn.trim().toUpperCase(),
         );
         if (!device) return;
+        if (!canAutomaticallyConnectSmartPet(match.target)) return;
         transferAttempted = true;
         await syncDevice(device);
       } catch (error) {

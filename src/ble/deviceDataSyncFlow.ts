@@ -1,4 +1,5 @@
 import type { AudioUploadProgress, BleUploadResult } from './audioUploadFlow';
+import { captureSessionScope } from '../auth/sessionScope';
 import {
   retryPendingUploadForDevice,
   type PendingUploadDevice,
@@ -29,6 +30,7 @@ const activeJobs = new Map<string, Promise<ReceiveAndUploadResult>>();
 export async function receiveAndUploadDeviceData(
   input: ReceiveAndUploadInput,
 ): Promise<ReceiveAndUploadResult> {
+  const scope = captureSessionScope();
   const key = `${input.device.appUserId}:${input.device.id}:${input.device.deviceSn.trim().toUpperCase()}`;
   const active = activeJobs.get(key);
   if (active) return active;
@@ -38,6 +40,7 @@ export async function receiveAndUploadDeviceData(
       input.target,
       input.onReceiveProgress ?? (() => undefined),
     );
+    scope.assertCurrent();
     input.onReceived?.(receive);
     if (!receive.completed) return { receive, upload: null };
 

@@ -1,4 +1,7 @@
-import { uploadsApi } from '../api/uploads';
+import { uploadsApi, type UploadedAudioFile } from '../api/uploads';
+import { sha256Hex } from '../lib/sha256';
+import { uploadJournal, type StoredUploadFile } from './uploadJournal';
+import { captureSessionScope } from '../auth/sessionScope';
 import {
   deleteStoredBleBlockAfterUpload,
   listPendingBleBlocks,
@@ -154,81 +157,138 @@ export async function uploadPendingDeviceBlocks(
   device: UserOwnedUploadDevice,
   onProgress?: (progress: AudioUploadProgress) => void,
 ): Promise<BleUploadResult | null> {
+  const scope = captureSessionScope();
   const storedBlocks = (await listPendingBleBlocks({ appUserId: device.appUserId })).filter(
     (stored) => stored.deviceSn === device.deviceSn && stored.source === 'device',
   );
+  scope.assertCurrent();
   if (storedBlocks.length === 0) return null;
   return uploadPulledDeviceBlocks(device, storedBlocks, onProgress);
 }
 
-interface StoredUploadFile {
-  stored: StoredBleBlock;
-  filename: string;
-  contentType: string;
-  durationSeconds?: number;
-  sampleRate?: number;
-}
+const uploadJobs = new Map<string, Promise<BleUploadResult>>();
 
-async function uploadStoredBlocks(
+function uploadStoredBlocks(
   device: UserOwnedUploadDevice,
   files: readonly StoredUploadFile[],
   onProgress?: (progress: AudioUploadProgress) => void,
 ): Promise<BleUploadResult> {
-  if (files.length === 0) throw new Error('没有待上传的数据文件');
+  const key = `smartpet.upload.v1.${device.appUserId}.${device.id}.${files[0]?.stored.source ?? 'device'}`;
+  const active = uploadJobs.get(key);
+  if (active) return active;
+  const task = resumeStoredBlocks(key, device, files, onProgress).finally(() => {
+    if (uploadJobs.get(key) === task) uploadJobs.delete(key);
+  });
+  uploadJobs.set(key, task);
+  return task;
+}
 
-  onProgress?.({ phase: 'creating_batch', message: '正在创建后端上传批次…' });
-  const batch = await withStageError(
-    '创建批次',
-    uploadsApi.createBatch(device.id, device.petProfileId),
-  );
+async function resumeStoredBlocks(
+  key: string,
+  device: UserOwnedUploadDevice,
+  requestedFiles: readonly StoredUploadFile[],
+  onProgress?: (progress: AudioUploadProgress) => void,
+): Promise<BleUploadResult> {
+  const scope = captureSessionScope();
+  if (requestedFiles.length === 0) throw new Error('没有待上传的数据文件');
+  await uploadsApi.requireIdempotentUploads();
+  scope.assertCurrent();
+  let journal = await uploadJournal.read(key);
+  scope.assertCurrent();
+  if (!journal) {
+    journal = {
+      version: 1,
+      requestKey: sha256Hex(new TextEncoder().encode(JSON.stringify([key, requestedFiles.map((file) => file.stored.id)]))),
+      batchId: null,
+      files: requestedFiles.map((file) => ({
+        ...file,
+        filename: `ble-${file.stored.id}.${file.filename.endsWith('.wav') ? 'wav' : 'bin'}`,
+      })),
+    };
+    await uploadJournal.save(key, journal);
+  }
+  scope.assertCurrent();
+  const files = journal.files;
+  if (files.some(({ stored }) => stored.appUserId !== device.appUserId || stored.deviceSn !== device.deviceSn)) {
+    throw new Error('续传记录与当前账号或设备不匹配');
+  }
+
+  onProgress?.({ phase: 'creating_batch', message: '正在恢复上传批次…' });
+  if (journal.batchId === null) {
+    const batch = await withStageError('创建批次',
+      uploadsApi.createBatch(device.id, device.petProfileId, journal.requestKey));
+    scope.assertCurrent();
+    journal.batchId = batch.id;
+    await uploadJournal.save(key, journal);
+  }
+  scope.assertCurrent();
+  const batchId = journal.batchId;
+  const server = await uploadsApi.getBatchStatus(batchId);
+  scope.assertCurrent();
+  if (server.batch.id !== batchId || server.batch.deviceId !== device.id) {
+    throw new Error('服务器批次归属不匹配，本地文件已保留');
+  }
 
   const uploadedFiles = [];
   for (const [index, file] of files.entries()) {
-    onProgress?.({
-      phase: 'uploading',
-      message: `正在上传第 ${index + 1}/${files.length} 个完整数据块…`,
-    });
-    const uploaded = await withStageError(
-      `上传第 ${index + 1} 个文件`,
-      uploadsApi.uploadLocalFile(batch.id, {
-        fileUri: file.stored.fileUri,
-        filename: file.filename,
-        contentType: file.contentType,
-        clientFileHash: file.stored.sha256,
-        durationSeconds: file.durationSeconds,
-        sampleRate: file.sampleRate,
-        collectedAt: file.stored.storedAt,
-      }),
-    );
+    scope.assertCurrent();
+    onProgress?.({ phase: 'uploading', message: `正在确认第 ${index + 1}/${files.length} 个文件…` });
+    const matches = server.files.filter((remote) => remote.originalFilename === file.filename);
+    if (matches.length > 1) throw new Error('服务器出现重复文件记录，本地文件已保留');
+    let uploaded = matches[0];
+    if (!uploaded) {
+      if (server.batch.status === 'completed') throw new Error('已完成批次缺少文件，本地文件已保留');
+      uploaded = await withStageError(`上传第 ${index + 1} 个文件`, uploadsApi.uploadLocalFile(batchId, {
+        fileUri: file.stored.fileUri, filename: file.filename, contentType: file.contentType,
+        clientFileHash: file.stored.sha256, durationSeconds: file.durationSeconds,
+        sampleRate: file.sampleRate, collectedAt: file.stored.storedAt,
+        idempotencyKey: `${journal.requestKey}-${index}`,
+      }));
+      scope.assertCurrent();
+    }
+    assertConfirmedFile(uploaded, file, batchId);
     uploadedFiles.push({ stored: file.stored, uploaded });
   }
 
-  onProgress?.({ phase: 'completing', message: '全部文件已上传，正在完成批次并确认存储路径…' });
-  const completed = await withStageError('完成批次', uploadsApi.completeBatch(batch.id));
-
-  // 只有整个批次完成后才清除本地队列；任何网络或后端错误都会保留全部文件用于重试。
-  await Promise.all(files.map((file) => deleteStoredBleBlockAfterUpload(file.stored.id)));
-  onProgress?.({
-    phase: 'complete',
-    message: `${files.length} 个完整数据块已自动上传，后端已确认存储`,
+  onProgress?.({ phase: 'completing', message: '正在核对云端完整文件清单…' });
+  const completed = server.batch.status === 'completed'
+    ? server : await withStageError('完成批次', uploadsApi.completeBatch(batchId));
+  scope.assertCurrent();
+  if (completed.batch.id !== batchId || completed.batch.deviceId !== device.id ||
+    completed.batch.status !== 'completed' || completed.files.length !== files.length ||
+    completed.batch.fileCount !== files.length ||
+    new Set(completed.files.map((file) => file.id)).size !== files.length) {
+    throw new Error('服务器尚未确认完整批次，本地文件已保留');
+  }
+  const confirmedFiles = uploadedFiles.map(({ stored, uploaded }, index) => {
+    const confirmed = completed.files.find((file) => file.id === uploaded.id);
+    if (!confirmed) throw new Error('服务器文件确认信息不完整，本地文件已保留');
+    assertConfirmedFile(confirmed, files[index], batchId);
+    return { blockId: stored.blockId, batchId, fileId: confirmed.id,
+      storagePath: confirmed.storagePath, fileHash: confirmed.fileHash, fileSize: confirmed.fileSize };
   });
+  if (completed.batch.totalBytes !== confirmedFiles.reduce((sum, file) => sum + file.fileSize, 0)) {
+    throw new Error('服务器批次大小不一致，本地文件已保留');
+  }
 
-  return {
-    batchId: completed.batch.id,
-    batchStatus: completed.batch.status,
-    totalBytes: files.reduce((total, file) => total + file.stored.totalLength, 0),
-    files: uploadedFiles.map(({ stored, uploaded }) => {
-      const confirmed = completed.files.find((file) => file.id === uploaded.id) ?? uploaded;
-      return {
-        blockId: stored.blockId,
-        batchId: completed.batch.id,
-        fileId: confirmed.id,
-        storagePath: confirmed.storagePath,
-        fileHash: confirmed.fileHash,
-        fileSize: confirmed.fileSize,
-      };
-    }),
-  };
+  // Keep the journal until every local cleanup succeeds: restarting can query the same completed batch.
+  for (const file of files) {
+    scope.assertCurrent();
+    await deleteStoredBleBlockAfterUpload(file.stored.id);
+  }
+  await uploadJournal.remove(key);
+  scope.assertCurrent();
+  onProgress?.({ phase: 'complete', message: `${files.length} 个文件已上传并核对完整` });
+  return { batchId, batchStatus: completed.batch.status,
+    totalBytes: files.reduce((sum, file) => sum + file.stored.totalLength, 0), files: confirmedFiles };
+}
+
+function assertConfirmedFile(remote: UploadedAudioFile, file: StoredUploadFile, batchId: number): void {
+  const expectedSize = file.stored.totalLength + (file.stored.audioFormat ? 44 : 0);
+  if (remote.batchId !== batchId || remote.originalFilename !== file.filename || !remote.storagePath ||
+    remote.fileHash.toLowerCase() !== file.stored.sha256.toLowerCase() || remote.fileSize !== expectedSize) {
+    throw new Error('服务器文件大小或校验值不一致，本地文件已保留');
+  }
 }
 
 async function withStageError<T>(stage: string, operation: Promise<T>): Promise<T> {

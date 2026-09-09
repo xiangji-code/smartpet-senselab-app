@@ -24,7 +24,7 @@ const isWeb = Platform.OS === 'web';
 
 /**
  * 扫码绑定页（issue-02）。
- * 扫描二维码或手动输入 Device SN → 登记待验证设备 → 进入蓝牙连接。
+ * 扫描二维码或手动输入 Device SN → 直接绑定设备 → 进入设备控制。
  * device_type 由后端按 SN 识别，此处不选择。
  */
 export default function BindScreen() {
@@ -82,15 +82,13 @@ export default function BindScreen() {
       setError(null);
       setSubmitting(true);
       try {
-        const device = await devicesApi.beginVerification(value);
+        const device = await devicesApi.bind(value);
         await refreshDevices();
-        const query =
-          `deviceId=${device.id}` +
-          `&deviceSn=${encodeURIComponent(device.deviceSn)}` +
-          `&deviceName=${encodeURIComponent(device.deviceName ?? '')}`;
-        // 路由类型在 expo start 时生成；新路由此处以 Href 显式标注
-        router.push(`/connection-setup?${query}` as Href);
         setSn('');
+        router.replace('/(tabs)' as Href);
+        requestAnimationFrame(() => {
+          router.push(`/device/${device.id}` as Href);
+        });
       } catch (e) {
         setError(friendlyError(e));
       } finally {
@@ -172,7 +170,7 @@ export default function BindScreen() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="打开相机扫描设备码"
-        accessibilityHint="扫描设备二维码并进入蓝牙连接"
+        accessibilityHint="扫描设备二维码并进入设备控制"
         style={({ pressed }) => [styles.scanCard, pressed && styles.scanCardPressed]}
         onPress={openScanner}
         disabled={submitting}
@@ -223,7 +221,7 @@ export default function BindScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="下一步，连接设备"
+          accessibilityLabel="添加设备并进入控制"
           accessibilityState={{ disabled: submitting || sn.trim().length === 0, busy: submitting }}
           style={({ pressed }) => [
             styles.btn,
@@ -236,14 +234,14 @@ export default function BindScreen() {
           {submitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.btnText}>下一步：连接设备</Text>
+            <Text style={styles.btnText}>添加并进入控制</Text>
           )}
         </Pressable>
       </View>
 
       <View style={styles.infoCard}>
         <Ionicons name="information-circle-outline" size={20} color={colors.blue} />
-        <Text style={styles.infoText}>下一步将连接设备蓝牙，确认设备在你身边后完成添加</Text>
+        <Text style={styles.infoText}>添加成功后将直接进入设备控制，并自动连接附近设备</Text>
       </View>
     </DesignScreen>
   );

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -28,9 +28,14 @@ import {
   type BleUploadResult,
 } from '../../src/ble/audioUploadFlow';
 import {
+  connectSmartPetDevice,
+  disconnectSmartPetDevice,
+  getBleConnectionsSnapshot,
   getLatestConnectedSmartPetDevice,
+  getSmartPetBleConnectionStatus,
   sendBarkSettingsBleCommand,
   sendTrainerBleCommand,
+  subscribeBleConnections,
   type DataSyncProgress,
   type TrainerCommandPhase,
 } from '../../src/ble/smartPetBle';
@@ -44,11 +49,11 @@ import {
   type BlePullPreview,
 } from '../../src/ble/pullPreview';
 import {
-  bluetoothLabel,
   deviceTypeLabel,
   onlineLabel,
   resolveDeviceStatus,
 } from '../../src/lib/deviceDisplay';
+import { describeBleSignal } from '../../src/lib/bleSignal';
 import { clampIntensity, intensityFromHorizontalPosition } from '../../src/lib/circular-intensity';
 import { href } from '../../src/lib/nav';
 import type { Device, DogSizeMode, TrainerCommand } from '../../src/types/domain';
@@ -63,6 +68,13 @@ export default function DeviceDetailScreen() {
   const [petName, setPetName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [advertisementOverride, setAdvertisementOverride] = useState<SmartPetAdvertisement | null>(null);
+  const [bleAction, setBleAction] = useState<'connecting' | 'disconnecting' | null>(null);
+  const [bleError, setBleError] = useState<string | null>(null);
+  useSyncExternalStore(
+    subscribeBleConnections,
+    getBleConnectionsSnapshot,
+    getBleConnectionsSnapshot,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,12 +127,27 @@ export default function DeviceDetailScreen() {
     deviceName: device.deviceName,
     deviceType: device.deviceType,
   });
+  const reconnectStatus = getSmartPetBleConnectionStatus({
+    deviceSn: device.deviceSn,
+    deviceName: device.deviceName,
+    deviceType: device.deviceType,
+  });
   const nativeBleConnection = bleConnection?.mode === 'native' ? bleConnection : null;
-  const advertisement = advertisementOverride ?? nativeBleConnection?.advertisement ?? null;
+  const reconnecting = !nativeBleConnection && reconnectStatus.state === 'reconnecting';
+  const signal = nativeBleConnection ? describeBleSignal(reconnectStatus.rssi) : null;
+  const currentAdvertisement = nativeBleConnection?.advertisement ?? null;
+  const advertisementCached = nativeBleConnection?.advertisementSource === 'cached';
+  const advertisement = currentAdvertisement ?? advertisementOverride;
   const battery = advertisement?.batteryLevel ?? status.battery;
-  const bluetooth = nativeBleConnection
-    ? '本次蓝牙已验证'
-    : bluetoothLabel(status.bluetooth);
+  const bluetooth = bleAction === 'connecting'
+    ? '蓝牙连接中'
+    : bleAction === 'disconnecting'
+      ? '蓝牙断开中'
+      : reconnecting
+        ? '自动重连中'
+        : nativeBleConnection
+        ? '蓝牙已连接'
+        : '蓝牙未连接';
   const workState = advertisement
     ? advertisement.status === 'listening'
       ? '侦听中（待机）'
@@ -135,6 +162,38 @@ export default function DeviceDetailScreen() {
         ? '止吠模式'
         : '未知'
     : null;
+
+  async function toggleBluetoothConnection(target: Device) {
+    if (bleAction) return;
+    setBleError(null);
+    const scanTarget = {
+      deviceSn: target.deviceSn,
+      deviceName: target.deviceName,
+      deviceType: target.deviceType,
+    };
+    if (nativeBleConnection || reconnecting) {
+      setBleAction('disconnecting');
+      try {
+        await disconnectSmartPetDevice(nativeBleConnection?.id, scanTarget);
+        setAdvertisementOverride(null);
+      } catch (cause) {
+        setBleError(cause instanceof Error ? cause.message : '断开蓝牙失败，请重试');
+      } finally {
+        setBleAction(null);
+      }
+      return;
+    }
+
+    setBleAction('connecting');
+    try {
+      const connected = await connectSmartPetDevice(scanTarget);
+      setAdvertisementOverride(connected.advertisement ?? null);
+    } catch (cause) {
+      setBleError(cause instanceof Error ? cause.message : '蓝牙连接失败，请确认设备已开启并在附近');
+    } finally {
+      setBleAction(null);
+    }
+  }
 
   return (
     <>
@@ -165,35 +224,80 @@ export default function DeviceDetailScreen() {
               }
               label={onlineLabel(status.online)}
             />
-            <StatusPill tone={nativeBleConnection ? 'ok' : 'muted'} label={bluetooth} />
+            <StatusPill
+              tone={nativeBleConnection ? 'ok' : bleAction || reconnecting ? 'warn' : 'muted'}
+              label={bluetooth}
+            />
+            {nativeBleConnection ? (
+              <StatusPill
+                tone={!signal ? 'muted' : signal.level === 'weak' ? 'bad' : signal.level === 'fair' ? 'warn' : 'ok'}
+                label={signal?.label ?? '信号检测中'}
+              />
+            ) : null}
             <StatusPill
               tone={battery == null ? 'muted' : battery < 20 ? 'bad' : battery < 50 ? 'warn' : 'ok'}
               label={
                 battery == null
                   ? '电量未知'
                   : advertisement
-                    ? `广播电量 ${battery}%`
+                    ? `${advertisementCached ? '最近广播电量' : '本次广播电量'} ${battery}%`
                     : `电量 ${battery}%`
               }
             />
-            <StatusPill tone="muted" label={`工作状态：${workState}`} />
-            {workMode ? <StatusPill tone="muted" label={`工作模式：${workMode}`} /> : null}
+            <StatusPill
+              tone="muted"
+              label={`${advertisementCached ? '最近广播' : advertisement ? '本次广播' : ''}工作状态：${workState}`}
+            />
+            {workMode ? (
+              <StatusPill
+                tone="muted"
+                label={`${advertisementCached ? '最近广播' : '本次广播'}工作模式：${workMode}`}
+              />
+            ) : null}
             {advertisement ? (
               <StatusPill
                 tone={advertisement.dataPending ? 'warn' : 'ok'}
-                label={`待传数据：${advertisement.dataPending ? '有' : '无'}`}
+                label={`${advertisementCached ? '最近广播' : '本次广播'}待传数据：${advertisement.dataPending ? '有' : '无'}`}
               />
             ) : null}
           </View>
-          <Text style={styles.bleSource}>
-            {advertisement
-              ? '状态来源：本次真实 BLE 广播'
-              : '暂未获取到设备实时状态，完成蓝牙连接后可查看电量和工作状态。'}
+          <Text accessibilityLiveRegion="polite" style={styles.bleSource}>
+            {nativeBleConnection && currentAdvertisement
+              ? advertisementCached
+                ? '状态来源：最近一次设备广播（非实时）；蓝牙信号每 5 秒检测一次。'
+                : '状态来源：本次连接前的设备广播；蓝牙信号每 5 秒检测一次。'
+              : nativeBleConnection
+                ? '蓝牙已连接；蓝牙信号每 5 秒检测一次。'
+                 : reconnecting
+                  ? reconnectStatus.reconnectPhase === 'paused'
+                    ? '等待数据传输完成后继续重连。'
+                    : `${reconnectStatus.reconnectPhase === 'scanning' ? '正在搜寻设备' : reconnectStatus.reconnectPhase === 'connecting' ? '正在连接' : '等待重连'}（第 ${reconnectStatus.attempt}/5 次）。`
+                  : advertisement
+                    ? '状态来源：最近一次 BLE 广播快照；当前蓝牙未连接。'
+                    : '尚未获取设备广播；下次扫描到设备时会显示广播电量和工作状态。'}
           </Text>
-          <Pressable style={styles.verifyBtn} onPress={() => router.push(connectionSetupHref(device))}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={nativeBleConnection ? '断开蓝牙' : reconnecting ? '停止自动重连' : '连接蓝牙'}
+            accessibilityState={{ busy: bleAction !== null, disabled: bleAction !== null }}
+            disabled={bleAction !== null}
+            style={[styles.bleConnectionBtn, bleAction && styles.btnMuted]}
+            onPress={() => void toggleBluetoothConnection(device)}
+          >
             <Ionicons name="bluetooth-outline" size={16} color={colors.greenDark} />
-            <Text style={styles.verifyText}>蓝牙验证</Text>
+            <Text style={styles.bleConnectionText}>
+              {bleAction === 'connecting'
+                ? '正在连接蓝牙'
+                : bleAction === 'disconnecting'
+                  ? '正在断开蓝牙'
+                  : nativeBleConnection
+                    ? '断开蓝牙'
+                    : reconnecting
+                      ? '停止自动重连'
+                      : '连接蓝牙'}
+            </Text>
           </Pressable>
+          {bleError ? <Text accessibilityRole="alert" style={styles.errorText}>{bleError}</Text> : null}
         </SectionCard>
 
         <SectionCard
@@ -336,7 +440,12 @@ function TrainerControls({ device }: { device: Device }) {
             />
           )}
           {selectedCommand !== 'light' ? <View style={styles.dialStepper}>
-            <Pressable accessibilityRole="button" accessibilityLabel="降低强度一档" disabled={sending !== null || selectedIntensity <= 1} style={[styles.dialStepButton, (sending !== null || selectedIntensity <= 1) && styles.btnMuted]} onPress={() => changeSelectedIntensity(-1)}><Text style={styles.dialStepText}>−</Text></Pressable>
+            <RepeatingStepButton
+              accessibilityLabel="降低强度一档"
+              disabled={sending !== null || selectedIntensity <= 1}
+              symbol="−"
+              onStep={() => changeSelectedIntensity(-1)}
+            />
             <HorizontalIntensitySlider
               danger={selectedCommand === 'shock'}
               disabled={sending !== null}
@@ -344,7 +453,12 @@ function TrainerControls({ device }: { device: Device }) {
               value={selectedIntensity}
               onChange={setSelectedIntensity}
             />
-            <Pressable accessibilityRole="button" accessibilityLabel="提高强度一档" disabled={sending !== null || selectedIntensity >= selectedMax} style={[styles.dialStepButton, (sending !== null || selectedIntensity >= selectedMax) && styles.btnMuted]} onPress={() => changeSelectedIntensity(1)}><Text style={styles.dialStepText}>+</Text></Pressable>
+            <RepeatingStepButton
+              accessibilityLabel="提高强度一档"
+              disabled={sending !== null || selectedIntensity >= selectedMax}
+              symbol="+"
+              onStep={() => changeSelectedIntensity(1)}
+            />
           </View> : null}
         </View>
 
@@ -536,6 +650,65 @@ function CircularIntensityDial({
   );
 }
 
+function RepeatingStepButton({
+  accessibilityLabel,
+  disabled,
+  symbol,
+  onStep,
+}: {
+  accessibilityLabel: string;
+  disabled: boolean;
+  symbol: '−' | '+';
+  onStep: () => void;
+}) {
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const didRepeat = useRef(false);
+  const onStepRef = useRef(onStep);
+
+  useEffect(() => {
+    onStepRef.current = onStep;
+  }, [onStep]);
+
+  const stopRepeating = useCallback(() => {
+    if (repeatTimer.current) {
+      clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopRepeating, [stopRepeating]);
+
+  useEffect(() => {
+    if (disabled) stopRepeating();
+  }, [disabled, stopRepeating]);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      delayLongPress={350}
+      style={[styles.dialStepButton, disabled && styles.btnMuted]}
+      onPressIn={() => {
+        didRepeat.current = false;
+      }}
+      onLongPress={() => {
+        if (disabled) return;
+        didRepeat.current = true;
+        onStepRef.current();
+        stopRepeating();
+        repeatTimer.current = setInterval(() => onStepRef.current(), 100);
+      }}
+      onPressOut={stopRepeating}
+      onPress={() => {
+        if (!didRepeat.current) onStepRef.current();
+      }}
+    >
+      <Text style={styles.dialStepText}>{symbol}</Text>
+    </Pressable>
+  );
+}
+
 function HorizontalIntensitySlider({
   danger,
   disabled,
@@ -574,20 +747,23 @@ function HorizontalIntensitySlider({
 
   const panResponder = useMemo(
     () => PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponderCapture: (_, gesture) => (
-        !disabled
-        && Math.abs(gesture.dx) >= 6
-        && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2
-      ),
-      onPanResponderGrant: measureSlider,
+      onStartShouldSetPanResponder: () => !disabled,
+      onStartShouldSetPanResponderCapture: () => !disabled,
+      onMoveShouldSetPanResponder: () => !disabled,
+      onMoveShouldSetPanResponderCapture: () => !disabled,
+      onPanResponderGrant: (event) => {
+        measureSlider();
+        updateFromPageX(event.nativeEvent.pageX);
+      },
       onPanResponderMove: (_, gesture) => updateFromPageX(gesture.moveX),
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
     }),
     [disabled, measureSlider, updateFromPageX],
   );
 
   return (
-    <Pressable
+    <View
       ref={sliderRef}
       accessibilityRole="adjustable"
       accessibilityLabel="强度档位"
@@ -598,14 +774,10 @@ function HorizontalIntensitySlider({
         { name: 'increment', label: '提高一档' },
         { name: 'decrement', label: '降低一档' },
       ]}
-      disabled={disabled}
       onAccessibilityAction={(event) => onChange(
         value + (event.nativeEvent.actionName === 'increment' ? 1 : -1),
       )}
       onLayout={measureSlider}
-      onPress={(event) => onChange(
-        intensityFromHorizontalPosition(event.nativeEvent.locationX, sliderWidth.current, max),
-      )}
       style={[styles.intensitySlider, disabled && styles.btnMuted]}
       {...panResponder.panHandlers}
     >
@@ -614,7 +786,7 @@ function HorizontalIntensitySlider({
         <View style={[styles.intensitySliderThumb, { backgroundColor: activeColor, left: `${progress * 100}%` }]} />
       </View>
       <Text pointerEvents="none" style={styles.intensitySliderLabel}>强度 {value}/{max}</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -899,12 +1071,16 @@ function BleSyncCard({
       title="蓝牙数据同步"
       right={syncing && progress
         ? <StatusPill tone={syncTone(progress)} label={syncLabel(progress)} />
-        : foregroundSyncState.isScanning
-          ? <StatusPill tone="warn" label="监听中" />
-          : <StatusPill tone="muted" label="等待广播" />}
+        : !consentReady
+          ? <StatusPill tone="warn" label="准备监听" />
+          : !consent
+            ? <StatusPill tone="muted" label="监听未开启" />
+            : foregroundSyncState.isScanning
+              ? <StatusPill tone="warn" label="监听中" />
+              : <StatusPill tone="ok" label="监听已开启" />}
     >
       <Text style={styles.meta}>
-        打开设备页后自动连接并订阅设备主动上传；逐帧校验、安全保存后自动上传后端。
+        App 在前台时会监听设备待传数据；发现数据后自动连接、逐帧校验并安全上传后端。
       </Text>
       <View style={styles.syncBox} accessibilityLiveRegion="polite">
         {syncing ? <ActivityIndicator color={colors.greenDark} /> : null}
@@ -917,7 +1093,7 @@ function BleSyncCard({
                 ? '开启数据采集授权后将自动接收'
                 : foregroundSyncState.isScanning
                   ? '正在监听设备广播，有数据时会自动接收'
-                  : '等待下一轮设备广播扫描'}
+                  : '待传广播监听已开启，发现数据后会自动接收'}
         </Text>
       </View>
       {!syncing && progress?.phase === 'error' ? (
@@ -1001,15 +1177,6 @@ function BleSyncCard({
   );
 }
 
-function connectionSetupHref(device: Device) {
-  const query = new URLSearchParams({
-    deviceId: String(device.id),
-    deviceSn: device.deviceSn,
-    deviceName: device.deviceName ?? '',
-  });
-  return href(`/connection-setup?${query.toString()}`);
-}
-
 function syncLabel(p: DataSyncProgress): string {
   if (p.phase === 'complete') return '完成';
   if (p.phase === 'empty') return '无数据';
@@ -1070,14 +1237,14 @@ const styles = StyleSheet.create({
   remoteDialValue: { color: 'rgba(255, 255, 255, 0.9)', fontSize: fontSize.small, fontWeight: '800', fontVariant: ['tabular-nums'] },
   remoteDialCue: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: 'rgba(255, 255, 255, 0.22)' },
   remoteDialCueText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
-  dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  dialStepper: { width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   dialStepButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.soft },
   dialStepText: { color: colors.indigo, fontSize: 24, fontWeight: '800' },
-  intensitySlider: { flex: 1, minWidth: 120, height: 52, justifyContent: 'center', gap: spacing.sm },
-  intensitySliderTrack: { height: 8, borderRadius: radius.pill, backgroundColor: colors.line },
+  intensitySlider: { flex: 1, minWidth: 120, height: 64, position: 'relative' },
+  intensitySliderTrack: { position: 'absolute', top: 20, left: 0, right: 0, height: 8, borderRadius: radius.pill, backgroundColor: colors.line },
   intensitySliderFill: { height: '100%', borderRadius: radius.pill },
   intensitySliderThumb: { position: 'absolute', top: -6, width: 20, height: 20, marginLeft: -10, borderRadius: radius.pill, borderWidth: 3, borderColor: colors.panel },
-  intensitySliderLabel: { color: colors.muted, fontSize: fontSize.small, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
+  intensitySliderLabel: { position: 'absolute', top: 40, left: 0, right: 0, color: colors.muted, fontSize: fontSize.small, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'] },
   remotePrimary: { flex: 1, minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, backgroundColor: colors.green },
   remotePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
   remoteStop: { flex: 1, minHeight: 50, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.sm, backgroundColor: colors.panel },
@@ -1227,7 +1394,7 @@ const styles = StyleSheet.create({
   },
   commandFeedbackText: { flex: 1, color: colors.greenDark, fontSize: fontSize.small, fontWeight: '700' },
   errorText: { color: colors.red, fontSize: fontSize.small, fontWeight: '700' },
-  verifyBtn: {
+  bleConnectionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1237,7 +1404,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingVertical: spacing.sm,
   },
-  verifyText: { color: colors.greenDark, fontSize: fontSize.small, fontWeight: '800' },
+  bleConnectionText: { color: colors.greenDark, fontSize: fontSize.small, fontWeight: '800' },
   syncBox: { backgroundColor: colors.soft, borderRadius: radius.sm, padding: spacing.md, gap: spacing.xs },
   diagnosticBox: {
     backgroundColor: '#FFF7E8',

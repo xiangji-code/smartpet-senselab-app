@@ -10,7 +10,7 @@ export interface ForegroundPendingAdvertisement {
   advertisement: SmartPetAdvertisement;
 }
 
-export function matchForegroundPendingAdvertisement(
+export function matchForegroundAdvertisement(
   targets: readonly BleScanTarget[],
   deviceId: string,
   serviceData?: Record<string, string> | null,
@@ -19,6 +19,14 @@ export function matchForegroundPendingAdvertisement(
   if (!target) return null;
 
   const advertisement = parseServiceDataAdvertisement(serviceData);
-  if (!advertisement?.dataPending) return null;
-  return { target, advertisement };
+  return advertisement ? { target, advertisement } : null;
+}
+
+export function matchForegroundPendingAdvertisement(
+  targets: readonly BleScanTarget[],
+  deviceId: string,
+  serviceData?: Record<string, string> | null,
+): ForegroundPendingAdvertisement | null {
+  const match = matchForegroundAdvertisement(targets, deviceId, serviceData);
+  return match?.advertisement.dataPending ? match : null;
 }

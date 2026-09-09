@@ -1,10 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+import * as Network from 'expo-network';
 
 import { useAuth } from '../auth/AuthContext';
+import { captureSessionScope } from '../auth/sessionScope';
 import { useConsent } from '../consent/ConsentContext';
 import type { AudioUploadProgress, BleUploadResult } from './audioUploadFlow';
 import { retryPendingUploadForDevice } from './pendingUploadCoordinator';
+import { createUploadRetryLoop } from './uploadRetryLoop';
 
 export interface PendingUploadState {
   phase: 'idle' | 'checking' | AudioUploadProgress['phase'] | 'error';
@@ -31,6 +34,9 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
   const { user, devices, isLoading } = useAuth();
   const { consent, ready: consentReady } = useConsent();
   const runningRef = useRef<Promise<void> | null>(null);
+  const failedRef = useRef(false);
+  const allowedRef = useRef(false);
+  allowedRef.current = !isLoading && Boolean(user) && consentReady && Boolean(consent);
   const [state, setState] = useState<PendingUploadState>(initialState);
 
   const retryAll = useCallback((): Promise<void> => {
@@ -40,9 +46,12 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
     }
 
     const task = (async () => {
+      const scope = captureSessionScope();
+      failedRef.current = false;
       let uploadedFiles = 0;
       let uploadedBytes = 0;
       for (const device of devices) {
+        if (scope.signal.aborted || !allowedRef.current || AppState.currentState !== 'active') return;
         setState({
           phase: 'checking',
           deviceSn: device.deviceSn,
@@ -58,6 +67,7 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
               appUserId: user.id,
             },
             (progress) => {
+              if (scope.signal.aborted) return;
               setState({
                 phase: progress.phase,
                 deviceSn: device.deviceSn,
@@ -66,6 +76,7 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
               });
             },
           );
+          if (scope.signal.aborted) return;
           if (result) {
             uploadedFiles += result.files.length;
             uploadedBytes += result.totalBytes;
@@ -77,6 +88,8 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
             });
           }
         } catch (error) {
+          if (scope.signal.aborted) return;
+          failedRef.current = true;
           setState({
             phase: 'error',
             deviceSn: device.deviceSn,
@@ -104,17 +117,31 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     if (!user) {
       setState(initialState);
-      return;
     }
-    void retryAll();
-  }, [retryAll, user]);
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') void retryAll();
+    if (!allowedRef.current) return;
+    let loop: ReturnType<typeof createUploadRetryLoop> | null = null;
+    const start = () => {
+      loop?.stop();
+      loop = createUploadRetryLoop(async () => {
+        await retryAll();
+        return !failedRef.current;
+      });
+      loop.wake();
+    };
+    if (AppState.currentState === 'active') start();
+    const appSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') start();
+      else { loop?.stop(); loop = null; }
     });
-    return () => subscription.remove();
-  }, [retryAll]);
+    const networkSubscription = Network.addNetworkStateListener((state) => {
+      if (state.isConnected && state.isInternetReachable !== false) loop?.wake();
+    });
+    return () => {
+      loop?.stop();
+      appSubscription.remove();
+      networkSubscription.remove();
+    };
+  }, [retryAll, user]);
 
   const value = useMemo(() => ({ state, retryAll }), [retryAll, state]);
   return <PendingUploadContext.Provider value={value}>{children}</PendingUploadContext.Provider>;

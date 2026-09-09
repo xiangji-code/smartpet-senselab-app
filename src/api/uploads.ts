@@ -1,5 +1,5 @@
 /** 音频上传 API：创建批次 → 上传真实本地文件 → 完成批次。 */
-import { api, type RequestOptions } from './client';
+import { api, ApiError, type RequestOptions } from './client';
 import type { AudioBatch, AudioBatchStatus } from '../types/domain';
 
 interface BatchDto {
@@ -101,10 +101,23 @@ function buildQuery(params: Record<string, string | number | undefined | null>):
 }
 
 export const uploadsApi = {
-  async createBatch(deviceId: number, petProfileId?: number | null): Promise<AudioBatch> {
+  async requireIdempotentUploads(): Promise<void> {
+    const capabilities = await api.get<{ idempotent_uploads?: number }>(`${BASE}/capabilities`).catch((error) => {
+      if (error instanceof ApiError && error.status === 404) {
+        throw new Error('服务器尚未支持安全续传，请先更新后端；文件已保留在手机');
+      }
+      throw error;
+    });
+    if (capabilities.idempotent_uploads !== 1) {
+      throw new Error('服务器尚未支持安全续传，请先更新后端；文件已保留在手机');
+    }
+  },
+
+  async createBatch(deviceId: number, petProfileId?: number | null, idempotencyKey?: string): Promise<AudioBatch> {
     const body: Record<string, unknown> = { device_id: deviceId, source: 'app_upload' };
     if (petProfileId != null) body.pet_profile_id = petProfileId;
-    return mapBatch(await api.post<BatchDto>(`${BASE}/batches`, body));
+    return mapBatch(await api.post<BatchDto>(`${BASE}/batches`, body,
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined));
   },
 
   async uploadLocalFile(
@@ -117,6 +130,7 @@ export const uploadsApi = {
       durationSeconds?: number;
       sampleRate?: number;
       collectedAt?: string;
+      idempotencyKey?: string;
     },
   ): Promise<UploadedAudioFile> {
     const query = buildQuery({
@@ -137,6 +151,7 @@ export const uploadsApi = {
     const dto = await api.upload<AudioFileDto>(
       `${BASE}/batches/${batchId}/files${query}`,
       form,
+      { idempotencyKey: input.idempotencyKey },
     );
     return mapAudioFile(dto);
   },
