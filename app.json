@@ -1,14 +1,15 @@
 {
   "expo": {
-    "name": "SmartPet SenseLab",
+    "name": "智宠科技",
     "slug": "smartpet-senselab-app",
-    "version": "0.1.0",
-    "icon": "./assets/app-icon-white.png",
+    "version": "0.1.1",
+    "icon": "./assets/zhichong-app-icon.png",
     "orientation": "portrait",
     "scheme": "smartpet",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "2",
       "bundleIdentifier": "com.smartpet.senselab",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "需要使用蓝牙连接设备、同步记录并发送控制指令。",
@@ -20,9 +21,10 @@
     },
     "android": {
       "package": "com.smartpet.senselab",
+      "versionCode": 2,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app-icon-white.png",
-        "backgroundColor": "#FFFFFF"
+        "foregroundImage": "./assets/zhichong-icon-foreground.png",
+        "backgroundColor": "#101B4D"
       },
       "permissions": [
         "android.permission.CAMERA",
