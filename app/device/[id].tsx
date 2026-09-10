@@ -33,6 +33,7 @@ import {
   getBleConnectionsSnapshot,
   getLatestConnectedSmartPetDevice,
   getSmartPetBleConnectionStatus,
+  MAX_AUTO_RECONNECT_ATTEMPTS,
   sendBarkSettingsBleCommand,
   sendTrainerBleCommand,
   subscribeBleConnections,
@@ -271,7 +272,7 @@ export default function DeviceDetailScreen() {
                  : reconnecting
                   ? reconnectStatus.reconnectPhase === 'paused'
                     ? '等待数据传输完成后继续重连。'
-                    : `${reconnectStatus.reconnectPhase === 'scanning' ? '正在搜寻设备' : reconnectStatus.reconnectPhase === 'connecting' ? '正在连接' : '等待重连'}（第 ${reconnectStatus.attempt}/5 次）。`
+                    : `${reconnectStatus.reconnectPhase === 'scanning' ? '正在搜寻设备' : reconnectStatus.reconnectPhase === 'connecting' ? '正在连接' : '等待重连'}（第 ${reconnectStatus.attempt}/${MAX_AUTO_RECONNECT_ATTEMPTS} 次）。`
                   : advertisement
                     ? '状态来源：最近一次 BLE 广播快照；当前蓝牙未连接。'
                     : '尚未获取设备广播；下次扫描到设备时会显示广播电量和工作状态。'}

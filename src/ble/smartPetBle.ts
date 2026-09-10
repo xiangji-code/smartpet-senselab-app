@@ -189,7 +189,7 @@ interface PersistentDataTxListener {
 }
 
 const AUTO_RECONNECT_DELAYS_MS = [500, 2_000, 5_000, 10_000, 30_000] as const;
-const MAX_AUTO_RECONNECT_ATTEMPTS = 5;
+export const MAX_AUTO_RECONNECT_ATTEMPTS = 5;
 const AUTO_RECONNECT_DIRECT_CONNECT_TIMEOUT_MS = 3_000;
 const AUTO_RECONNECT_SCAN_TIMEOUT_MS = 8_000;
 const AUTO_RECONNECT_CONNECT_TIMEOUT_MS = 8_000;
@@ -2091,7 +2091,13 @@ function scheduleAutoReconnect(targetKey: string): void {
     !autoReconnectIntents.has(targetKey)
   ) return;
 
-  const attempt = (autoReconnectAttempts.get(targetKey) ?? 0) + 1;
+  const previousAttempt = autoReconnectAttempts.get(targetKey) ?? 0;
+  if (previousAttempt >= MAX_AUTO_RECONNECT_ATTEMPTS) {
+    stopAutoReconnectUntilManualConnect(targetKey);
+    return;
+  }
+
+  const attempt = previousAttempt + 1;
   const delayMs = AUTO_RECONNECT_DELAYS_MS[
     Math.min(attempt - 1, AUTO_RECONNECT_DELAYS_MS.length - 1)
   ];
