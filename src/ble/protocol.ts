@@ -168,13 +168,16 @@ export function parseServiceDataAdvertisement(
   return null;
 }
 
-/** Matches `XG/ZF + final four MAC bytes` binding codes to an Android BLE address. */
-export function matchesBindingCodeMac(bindingCode: string, bleDeviceId: string): boolean {
+/** Matches a binding code to the stable 8-hex device identifier carried in BLE service data. */
+export function matchesBindingCodeAdvertisement(
+  bindingCode: string,
+  advertisedSerialNumber?: string | null,
+): boolean {
   const codeMatch = bindingCode.trim().toUpperCase().match(/^(?:XG|ZF)([0-9A-F]{8})$/);
-  if (!codeMatch) return false;
+  if (!codeMatch || !advertisedSerialNumber) return false;
 
-  const normalizedMac = bleDeviceId.replace(/[^0-9A-F]/gi, '').toUpperCase();
-  return normalizedMac.length === 12 && normalizedMac.endsWith(codeMatch[1]);
+  const normalizedSerial = advertisedSerialNumber.replace(/[^0-9A-F]/gi, '').toUpperCase();
+  return normalizedSerial.length === 8 && normalizedSerial === codeMatch[1];
 }
 
 export function crc16Ccitt(bytes: Uint8Array): number {

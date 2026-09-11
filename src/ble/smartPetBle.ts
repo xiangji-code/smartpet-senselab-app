@@ -38,7 +38,7 @@ import {
   encodeBarkSensitivity,
   encodeDogSize,
   encodeTrainerCommand,
-  matchesBindingCodeMac,
+  matchesBindingCodeAdvertisement,
   matchesBlockAcknowledgement,
   parseBleTxValue,
   parseDataFrame,
@@ -1476,7 +1476,8 @@ function scanForReconnectDevices(
 }
 
 function matchesTarget(device: BlePlxDevice, target: BleScanTarget): boolean {
-  return matchesBindingCodeMac(target.deviceSn, device.id);
+  const advertisement = parseServiceDataAdvertisement(device.serviceData);
+  return matchesBindingCodeAdvertisement(target.deviceSn, advertisement?.serialNumber);
 }
 
 async function assertDataTransferGattAvailable(device: BlePlxDevice): Promise<'notify' | 'read'> {

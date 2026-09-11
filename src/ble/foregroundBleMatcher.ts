@@ -1,5 +1,5 @@
 import {
-  matchesBindingCodeMac,
+  matchesBindingCodeAdvertisement,
   parseServiceDataAdvertisement,
   type SmartPetAdvertisement,
 } from './protocol';
@@ -12,14 +12,18 @@ export interface ForegroundPendingAdvertisement {
 
 export function matchForegroundAdvertisement(
   targets: readonly BleScanTarget[],
-  deviceId: string,
+  _deviceId: string,
   serviceData?: Record<string, string> | null,
 ): ForegroundPendingAdvertisement | null {
-  const target = targets.find((item) => matchesBindingCodeMac(item.deviceSn, deviceId));
+  const advertisement = parseServiceDataAdvertisement(serviceData);
+  if (!advertisement) return null;
+
+  const target = targets.find((item) =>
+    matchesBindingCodeAdvertisement(item.deviceSn, advertisement.serialNumber),
+  );
   if (!target) return null;
 
-  const advertisement = parseServiceDataAdvertisement(serviceData);
-  return advertisement ? { target, advertisement } : null;
+  return { target, advertisement };
 }
 
 export function matchForegroundPendingAdvertisement(

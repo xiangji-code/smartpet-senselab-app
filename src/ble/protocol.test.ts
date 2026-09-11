@@ -14,7 +14,7 @@ import {
   encodeBarkSensitivity,
   encodeDogSize,
   encodeTrainerCommand,
-  matchesBindingCodeMac,
+  matchesBindingCodeAdvertisement,
   matchesBlockAcknowledgement,
   parseBlockAcknowledgement,
   parseBleTxValue,
@@ -86,12 +86,11 @@ describe('SmartPet BLE advertisement protocol', () => {
     expect(advertisement?.dataPending).toBe(true);
   });
 
-  it('matches an XG or ZF binding code against the final four MAC bytes', () => {
-    expect(matchesBindingCodeMac('XGAE100779', '74:71:AE:10:07:79')).toBe(true);
-    expect(matchesBindingCodeMac('ZFAE100779', '74-71-AE-10-07-79')).toBe(true);
-    expect(matchesBindingCodeMac('XGAE100779', '74:71:AE:10:07:78')).toBe(false);
-    expect(matchesBindingCodeMac('iPet-7A68', '74:71:AE:10:07:79')).toBe(false);
-    expect(matchesBindingCodeMac('XG0779', '74:71:AE:10:07:79')).toBe(false);
+  it('matches an XG or ZF binding code against the advertised serial on iOS', () => {
+    expect(matchesBindingCodeAdvertisement('XG7471AE10', '7471AE10')).toBe(true);
+    expect(matchesBindingCodeAdvertisement('ZF7471AE10', '74:71:AE:10')).toBe(true);
+    expect(matchesBindingCodeAdvertisement('XG7471AE10', '7471AE11')).toBe(false);
+    expect(matchesBindingCodeAdvertisement('XG0779', '7471AE10')).toBe(false);
   });
 });
 
