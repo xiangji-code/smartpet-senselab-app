@@ -202,12 +202,37 @@ async function resumeStoredBlocks(
       batchId: null,
       files: requestedFiles.map((file) => ({
         ...file,
-        filename: `ble-${file.stored.id}.${file.filename.endsWith('.wav') ? 'wav' : 'bin'}`,
+        // React Native uploads Expo File.name, even when FormData.append receives
+        // a different filename. Persist that native filename so resume matching
+        // uses the exact value returned by the backend.
+        filename: file.stored.fileName,
       })),
     };
     await uploadJournal.save(key, journal);
   }
   scope.assertCurrent();
+  const previousFiles = journal.files;
+  const currentFilesById = new Map(requestedFiles.map((file) => [file.stored.id, file]));
+  const migratedFiles = previousFiles.map((file) => {
+    const current = currentFilesById.get(file.stored.id);
+    return {
+      ...file,
+      // iOS may change the absolute app-container path after an overwrite install.
+      // Refresh the stored record from the durable queue while retaining the
+      // batch and idempotency metadata from the journal.
+      stored: current?.stored ?? file.stored,
+      filename: current?.stored.fileName ?? file.stored.fileName,
+    };
+  });
+  if (migratedFiles.some((file, index) =>
+    file.filename !== previousFiles[index].filename ||
+    file.stored.fileUri !== previousFiles[index].stored.fileUri
+  )) {
+    // Migrate legacy filenames and stale iOS container paths in place so
+    // already-uploaded files remain recognizable without duplicating bytes.
+    journal = { ...journal, files: migratedFiles };
+    await uploadJournal.save(key, journal);
+  }
   const files = journal.files;
   if (files.some(({ stored }) => stored.appUserId !== device.appUserId || stored.deviceSn !== device.deviceSn)) {
     throw new Error('续传记录与当前账号或设备不匹配');

@@ -36,6 +36,7 @@ import {
   deviceTypeLabel,
   onlineLabel,
 } from '../../src/lib/deviceDisplay';
+import { deviceDestination } from '../../src/lib/deviceNavigation';
 import { describeBleSignal } from '../../src/lib/bleSignal';
 import { href } from '../../src/lib/nav';
 import type { Device, PetProfile } from '../../src/types/domain';
@@ -295,6 +296,7 @@ function CompactDeviceCard({
     deviceType: device.deviceType,
   });
   const reconnecting = !connected && connectionStatus.state === 'reconnecting';
+  const pendingVerification = device.bindStatus === 'pending_verification';
   const signal = connected ? describeBleSignal(connectionStatus.rssi) : null;
   const connectionLabel = connected
     ? '蓝牙已连接'
@@ -305,7 +307,7 @@ function CompactDeviceCard({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`查看设备 ${device.deviceName || device.deviceSn}，${connectionLabel}`}
+      accessibilityLabel={`查看设备 ${device.deviceName || device.deviceSn}，${pendingVerification ? '待账号验证' : connectionLabel}`}
       accessibilityHint="长按可删除设备"
       delayLongPress={600}
       style={({ pressed }) => [styles.deviceCard, pressed && styles.cardPressed]}
@@ -334,6 +336,7 @@ function CompactDeviceCard({
         <Text numberOfLines={1} style={styles.deviceMeta}>{deviceTypeLabel(device.deviceType)}{petName ? ` · 已关联 ${petName}` : ''}</Text>
         <View style={styles.pills}>
           <StatusPill tone={connected ? 'ok' : reconnecting ? 'warn' : 'muted'} label={connectionLabel} />
+          {pendingVerification ? <StatusPill tone="warn" label="待账号验证" /> : null}
           {connected ? (
             <StatusPill
               tone={!signal ? 'muted' : signal.level === 'weak' ? 'bad' : signal.level === 'fair' ? 'warn' : 'ok'}
@@ -343,7 +346,7 @@ function CompactDeviceCard({
         </View>
       </View>
       <View style={styles.deviceAction}>
-        <Text style={styles.controlText}>进入控制</Text>
+        <Text style={styles.controlText}>{pendingVerification ? '继续验证' : '进入控制'}</Text>
         <Ionicons name="chevron-forward" size={15} color="#fff" />
       </View>
     </Pressable>
@@ -363,6 +366,13 @@ function getDeleteDialog(target: DeleteTarget | null) {
   }
 
   const name = target.device.deviceName || target.device.deviceSn || '此设备';
+  if (target.device.bindStatus === 'pending_verification') {
+    return {
+      title: '取消添加设备',
+      message: `确定取消添加「${name}」吗？之后可以重新扫描添加。`,
+      confirmText: '取消添加',
+    };
+  }
   return {
     title: '解绑设备',
     message: `确定解绑「${name}」吗？解绑后设备将从当前账号移除，之后可以重新添加。`,
@@ -388,7 +398,7 @@ function isDeviceBleConnected(device: Device): boolean {
 }
 
 function deviceHref(device: Device) {
-  return href(`/device/${device.id}`);
+  return href(deviceDestination(device));
 }
 
 function initials(value: string) {

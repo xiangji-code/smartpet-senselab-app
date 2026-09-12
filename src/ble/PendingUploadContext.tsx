@@ -28,6 +28,22 @@ const initialState: PendingUploadState = {
   result: null,
 };
 
+export function finalizePendingUploadState(
+  current: PendingUploadState,
+  lastError: PendingUploadState | null,
+  uploadedFiles: number,
+  uploadedBytes: number,
+): PendingUploadState {
+  if (uploadedFiles > 0) {
+    return {
+      ...current,
+      phase: 'complete',
+      message: `自动续传完成：${uploadedFiles} 个文件，共 ${uploadedBytes} B`,
+    };
+  }
+  return lastError ?? initialState;
+}
+
 const PendingUploadContext = createContext<PendingUploadContextValue | undefined>(undefined);
 
 export function PendingUploadProvider({ children }: { children: React.ReactNode }) {
@@ -50,6 +66,7 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
       failedRef.current = false;
       let uploadedFiles = 0;
       let uploadedBytes = 0;
+      let lastError: PendingUploadState | null = null;
       for (const device of devices) {
         if (scope.signal.aborted || !allowedRef.current || AppState.currentState !== 'active') return;
         setState({
@@ -90,23 +107,21 @@ export function PendingUploadProvider({ children }: { children: React.ReactNode 
         } catch (error) {
           if (scope.signal.aborted) return;
           failedRef.current = true;
-          setState({
+          lastError = {
             phase: 'error',
             deviceSn: device.deviceSn,
             message: `${error instanceof Error ? error.message : '自动续传失败'}；文件仍安全保留在手机中`,
             result: null,
-          });
+          };
+          setState(lastError);
         }
       }
-      if (uploadedFiles > 0) {
-        setState((current) => ({
-          ...current,
-          phase: 'complete',
-          message: `自动续传完成：${uploadedFiles} 个文件，共 ${uploadedBytes} B`,
-        }));
-      } else {
-        setState((current) => current.phase === 'error' ? current : initialState);
-      }
+      setState((current) => finalizePendingUploadState(
+        current,
+        lastError,
+        uploadedFiles,
+        uploadedBytes,
+      ));
     })().finally(() => {
       runningRef.current = null;
     });

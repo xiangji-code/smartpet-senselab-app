@@ -4,10 +4,13 @@ import { uploadsApi } from '../api/uploads';
 import { deleteStoredBleBlockAfterUpload, type StoredBleBlock } from './blockQueue';
 import { uploadPulledDeviceBlocks } from './audioUploadFlow';
 import { makeSimulatedVoiceWav } from './simulatedWav';
+import { uploadJournal } from './uploadJournal';
 
 vi.mock('../api/uploads', () => ({
   uploadsApi: {
+    requireIdempotentUploads: vi.fn(),
     createBatch: vi.fn(),
+    getBatchStatus: vi.fn(),
     uploadLocalFile: vi.fn(),
     completeBatch: vi.fn(),
   },
@@ -17,6 +20,14 @@ vi.mock('./blockQueue', () => ({
   deleteStoredBleBlockAfterUpload: vi.fn(),
   listPendingBleBlocks: vi.fn(),
   persistBleBlock: vi.fn(),
+}));
+
+vi.mock('./uploadJournal', () => ({
+  uploadJournal: {
+    read: vi.fn(),
+    save: vi.fn(),
+    remove: vi.fn(),
+  },
 }));
 
 describe('makeSimulatedVoiceWav', () => {
@@ -43,6 +54,10 @@ describe('uploadPulledDeviceBlocks', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(uploadsApi.requireIdempotentUploads).mockResolvedValue();
+    vi.mocked(uploadJournal.read).mockResolvedValue(null);
+    vi.mocked(uploadJournal.save).mockResolvedValue();
+    vi.mocked(uploadJournal.remove).mockResolvedValue();
     vi.mocked(uploadsApi.createBatch).mockResolvedValue({
       id: 31,
       deviceId: 7,
@@ -55,27 +70,10 @@ describe('uploadPulledDeviceBlocks', () => {
       createdAt: '2026-07-21T08:00:00.000Z',
       completedAt: null,
     });
-    vi.mocked(uploadsApi.uploadLocalFile)
-      .mockResolvedValueOnce(uploadedFile(101, 31, 100))
-      .mockResolvedValueOnce(uploadedFile(102, 31, 240));
-    vi.mocked(uploadsApi.completeBatch).mockResolvedValue({
-      batch: {
-        id: 31,
-        deviceId: 7,
-        deviceSn: 'XGAE100A28',
-        petProfileId: null,
-        source: 'app_upload',
-        status: 'completed',
-        fileCount: 2,
-        totalBytes: 340,
-        createdAt: '2026-07-21T08:00:00.000Z',
-        completedAt: '2026-07-21T08:01:00.000Z',
-      },
-      files: [uploadedFile(101, 31, 100), uploadedFile(102, 31, 240)],
-    });
   });
 
   it('uploads each complete block as a separate file in one batch', async () => {
+    configureNewBatch([first, second]);
     const result = await uploadPulledDeviceBlocks(
       { id: 7, deviceSn: 'XGAE100A28', appUserId: 23 },
       [first, second],
@@ -86,12 +84,20 @@ describe('uploadPulledDeviceBlocks', () => {
     expect(uploadsApi.uploadLocalFile).toHaveBeenNthCalledWith(
       1,
       31,
-      expect.objectContaining({ fileUri: first.fileUri, clientFileHash: first.sha256 }),
+      expect.objectContaining({
+        fileUri: first.fileUri,
+        filename: first.fileName,
+        clientFileHash: first.sha256,
+      }),
     );
     expect(uploadsApi.uploadLocalFile).toHaveBeenNthCalledWith(
       2,
       31,
-      expect.objectContaining({ fileUri: second.fileUri, clientFileHash: second.sha256 }),
+      expect.objectContaining({
+        fileUri: second.fileUri,
+        filename: second.fileName,
+        clientFileHash: second.sha256,
+      }),
     );
     expect(uploadsApi.completeBatch).toHaveBeenCalledWith(31);
     expect(deleteStoredBleBlockAfterUpload).toHaveBeenCalledTimes(2);
@@ -108,6 +114,7 @@ describe('uploadPulledDeviceBlocks', () => {
       fileUri: 'file:///first.wav',
       audioFormat: 'wav_pcm_s16le_16khz_mono',
     };
+    configureNewBatch([audio]);
 
     await uploadPulledDeviceBlocks(
       { id: 7, deviceSn: 'XGAE100A28', appUserId: 23 },
@@ -117,7 +124,7 @@ describe('uploadPulledDeviceBlocks', () => {
     expect(uploadsApi.uploadLocalFile).toHaveBeenCalledWith(
       31,
       expect.objectContaining({
-        filename: 'ble-device-XGAE100A28-block-1.wav',
+        filename: 'first.wav',
         contentType: 'audio/wav',
         durationSeconds: 1,
         sampleRate: 16_000,
@@ -134,6 +141,7 @@ describe('uploadPulledDeviceBlocks', () => {
       fileUri: 'file:///first.wav',
       audioFormat: 'wav_pcm_s16le_16khz_mono',
     };
+    configureNewBatch([rfAudio]);
 
     await uploadPulledDeviceBlocks(
       { id: 7, deviceSn: 'XGAE100A28', appUserId: 23 },
@@ -143,7 +151,7 @@ describe('uploadPulledDeviceBlocks', () => {
     expect(uploadsApi.uploadLocalFile).toHaveBeenCalledWith(
       31,
       expect.objectContaining({
-        filename: 'ble-device-XGAE100A28-block-1.wav',
+        filename: 'first.wav',
         contentType: 'audio/wav',
         durationSeconds: 1.024,
         sampleRate: 16_000,
@@ -160,6 +168,7 @@ describe('uploadPulledDeviceBlocks', () => {
       fileUri: 'file:///legacy.wav',
       audioFormat: 'wav_pcm_s16le_8khz_mono',
     };
+    configureNewBatch([legacyAudio]);
 
     await uploadPulledDeviceBlocks(
       { id: 7, deviceSn: 'XGAE100A28', appUserId: 23 },
@@ -169,7 +178,7 @@ describe('uploadPulledDeviceBlocks', () => {
     expect(uploadsApi.uploadLocalFile).toHaveBeenCalledWith(
       31,
       expect.objectContaining({
-        filename: 'ble-device-XGAE100A28-block-1.wav',
+        filename: 'legacy.wav',
         contentType: 'audio/wav',
         durationSeconds: 1,
         sampleRate: 8_000,
@@ -178,6 +187,7 @@ describe('uploadPulledDeviceBlocks', () => {
   });
 
   it('keeps every local block when the batch cannot be completed', async () => {
+    configureNewBatch([first, second]);
     vi.mocked(uploadsApi.completeBatch).mockRejectedValueOnce(new Error('server unavailable'));
 
     await expect(
@@ -188,6 +198,75 @@ describe('uploadPulledDeviceBlocks', () => {
     ).rejects.toThrow('完成批次阶段失败');
 
     expect(deleteStoredBleBlockAfterUpload).not.toHaveBeenCalled();
+  });
+
+  it('migrates a legacy journal filename and resumes an already-uploaded file', async () => {
+    const uploaded = uploadedFile(101, 31, first);
+    vi.mocked(uploadJournal.read).mockResolvedValue({
+      version: 1,
+      requestKey: 'existing-request',
+      batchId: 31,
+      files: [{
+        stored: first,
+        filename: 'ble-first.bin',
+        contentType: 'application/octet-stream',
+      }],
+    });
+    vi.mocked(uploadsApi.getBatchStatus).mockResolvedValue(batchStatus('uploading', [uploaded]));
+    vi.mocked(uploadsApi.completeBatch).mockResolvedValue(batchStatus('completed', [uploaded]));
+
+    const result = await uploadPulledDeviceBlocks(
+      { id: 7, deviceSn: 'XGAE100A28', appUserId: 23 },
+      [first],
+    );
+
+    expect(uploadJournal.save).toHaveBeenCalledWith(
+      'smartpet.upload.v1.23.7.device',
+      expect.objectContaining({
+        files: [expect.objectContaining({ filename: 'first.bin' })],
+      }),
+    );
+    expect(uploadsApi.uploadLocalFile).not.toHaveBeenCalled();
+    expect(uploadsApi.completeBatch).toHaveBeenCalledWith(31);
+    expect(deleteStoredBleBlockAfterUpload).toHaveBeenCalledWith(first.id);
+    expect(uploadJournal.remove).toHaveBeenCalledWith('smartpet.upload.v1.23.7.device');
+    expect(result.batchStatus).toBe('completed');
+  });
+
+  it('refreshes a stale iOS container URI before resuming an upload', async () => {
+    const stale = { ...first, fileUri: 'file:///old-app-container/Documents/first.bin' };
+    const uploaded = uploadedFile(101, 31, first);
+    vi.mocked(uploadJournal.read).mockResolvedValue({
+      version: 1,
+      requestKey: 'existing-request',
+      batchId: 31,
+      files: [{
+        stored: stale,
+        filename: first.fileName,
+        contentType: 'application/octet-stream',
+      }],
+    });
+    vi.mocked(uploadsApi.getBatchStatus).mockResolvedValue(batchStatus('uploading', []));
+    vi.mocked(uploadsApi.uploadLocalFile).mockResolvedValue(uploaded);
+    vi.mocked(uploadsApi.completeBatch).mockResolvedValue(batchStatus('completed', [uploaded]));
+
+    await uploadPulledDeviceBlocks(
+      { id: 7, deviceSn: 'XGAE100A28', appUserId: 23 },
+      [first],
+    );
+
+    expect(uploadJournal.save).toHaveBeenCalledWith(
+      'smartpet.upload.v1.23.7.device',
+      expect.objectContaining({
+        files: [expect.objectContaining({
+          stored: expect.objectContaining({ fileUri: first.fileUri }),
+        })],
+      }),
+    );
+    expect(uploadsApi.uploadLocalFile).toHaveBeenCalledWith(
+      31,
+      expect.objectContaining({ fileUri: first.fileUri }),
+    );
   });
 
   it('rejects a queued block that belongs to another App account', async () => {
@@ -223,14 +302,39 @@ function storedBlock(id: string, blockId: number, totalLength: number): StoredBl
   };
 }
 
-function uploadedFile(id: number, batchId: number, fileSize: number) {
+function configureNewBatch(files: StoredBleBlock[]): void {
+  const uploaded = files.map((file, index) => uploadedFile(101 + index, 31, file));
+  vi.mocked(uploadsApi.getBatchStatus).mockResolvedValue(batchStatus('uploading', []));
+  uploaded.forEach((file) => vi.mocked(uploadsApi.uploadLocalFile).mockResolvedValueOnce(file));
+  vi.mocked(uploadsApi.completeBatch).mockResolvedValue(batchStatus('completed', uploaded));
+}
+
+function batchStatus(status: 'uploading' | 'completed', files: ReturnType<typeof uploadedFile>[]) {
+  return {
+    batch: {
+      id: 31,
+      deviceId: 7,
+      deviceSn: 'XGAE100A28',
+      petProfileId: null,
+      source: 'app_upload',
+      status,
+      fileCount: files.length,
+      totalBytes: files.reduce((total, file) => total + file.fileSize, 0),
+      createdAt: '2026-07-21T08:00:00.000Z',
+      completedAt: status === 'completed' ? '2026-07-21T08:01:00.000Z' : null,
+    },
+    files,
+  };
+}
+
+function uploadedFile(id: number, batchId: number, stored: StoredBleBlock) {
   return {
     id,
     batchId,
-    originalFilename: `${id}.bin`,
+    originalFilename: stored.fileName,
     storagePath: `oss/${id}.bin`,
-    fileHash: `server-hash-${id}`,
-    fileSize,
+    fileHash: stored.sha256,
+    fileSize: stored.totalLength + (stored.audioFormat ? 44 : 0),
     format: null,
     durationSeconds: null,
     sampleRate: null,
