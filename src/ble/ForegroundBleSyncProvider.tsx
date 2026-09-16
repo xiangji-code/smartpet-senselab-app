@@ -8,7 +8,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 
 import { useAuth } from '../auth/AuthContext';
 import { useConsent } from '../consent/ConsentContext';
@@ -36,6 +36,7 @@ import {
 import type { BleFrameDiagnostic } from './frameDiagnostic';
 import type { SmartPetAdvertisement } from './protocol';
 import { buildBlePullPreview, type BlePullPreview } from './pullPreview';
+import { setAndroidBleForegroundServiceEnabled } from './androidBleForegroundService';
 
 export interface ForegroundBleSyncState {
   phase: 'idle' | 'receiving' | 'uploading' | 'complete' | 'empty' | 'error';
@@ -83,11 +84,26 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
     getBleConnectionsSnapshot,
     getBleConnectionsSnapshot,
   );
+  const backgroundBleEnabled =
+    Platform.OS === 'android' &&
+    !isLoading &&
+    Boolean(user) &&
+    consentReady &&
+    Boolean(consent) &&
+    devices.length > 0;
+  const bleRuntimeEnabled = appState === 'active' || backgroundBleEnabled;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    void setAndroidBleForegroundServiceEnabled(backgroundBleEnabled);
+    return () => {
+      if (backgroundBleEnabled) void setAndroidBleForegroundServiceEnabled(false);
+    };
+  }, [backgroundBleEnabled]);
 
   useEffect(() => {
     const targets: BleScanTarget[] = devices.map((device) => ({
@@ -96,19 +112,19 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
       deviceType: device.deviceType,
     }));
     void configureSmartPetAutoReconnect({
-      enabled: appState === 'active' && !isLoading && Boolean(user),
+      enabled: bleRuntimeEnabled && !isLoading && Boolean(user),
       ownerId: user?.id ?? null,
       targets,
     });
-  }, [appState, devices, isLoading, user]);
+  }, [bleRuntimeEnabled, devices, isLoading, user]);
 
   useEffect(() => {
-    if (appState !== 'active' || isLoading || !user) return;
+    if (!bleRuntimeEnabled || isLoading || !user) return;
     const timer = setInterval(() => {
       void verifyActiveSmartPetBleConnections();
     }, 5_000);
     return () => clearInterval(timer);
-  }, [appState, isLoading, user]);
+  }, [bleRuntimeEnabled, isLoading, user]);
 
   const syncDevice = useCallback((device: Device): Promise<void> => {
     const scope = captureSessionScope();
@@ -209,7 +225,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
 
   useEffect(() => {
     if (
-      appState !== 'active' ||
+      !bleRuntimeEnabled ||
       isLoading ||
       !user ||
       !consentReady ||
@@ -224,7 +240,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
       if (hasQueuedSmartPetData(target)) void syncDevice(device);
     }
   }, [
-    appState,
+    bleRuntimeEnabled,
     bleConnectionsSnapshot,
     consent,
     consentReady,
@@ -240,7 +256,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
     let initialScan = true;
 
     const enabled =
-      appState === 'active' &&
+      bleRuntimeEnabled &&
       !isLoading &&
       Boolean(user) &&
       consentReady &&
@@ -306,7 +322,7 @@ export function ForegroundBleSyncProvider({ children }: { children: React.ReactN
       if (timer) clearTimeout(timer);
       stopForegroundSmartPetScan();
     };
-  }, [appState, consent, consentReady, devices, isLoading, syncDevice, user]);
+  }, [bleRuntimeEnabled, consent, consentReady, devices, isLoading, syncDevice, user]);
 
   const value = useMemo(() => ({ state, syncDevice }), [state, syncDevice]);
   return (

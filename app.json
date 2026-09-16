@@ -2,7 +2,7 @@
   "expo": {
     "name": "智宠科技",
     "slug": "smartpet-senselab-app",
-    "version": "0.1.1",
+    "version": "0.1.4",
     "icon": "./assets/zhichong-app-icon.png",
     "orientation": "portrait",
     "scheme": "smartpet",
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.smartpet.senselab",
-      "versionCode": 2,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/zhichong-icon-foreground.png",
         "backgroundColor": "#FFFFFF"
@@ -31,9 +31,7 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_SCAN",
-        "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.BLUETOOTH_CONNECT"
       ]
     },
     "web": {
@@ -54,12 +52,14 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": true,
+          "neverForLocation": true,
           "modes": [
             "central"
           ],
           "bluetoothAlwaysPermission": "需要使用蓝牙连接设备、同步记录并发送控制指令。"
         }
       ],
+      "./plugins/withAndroidBlePermissions",
       "expo-font",
       [
         "expo-build-properties",

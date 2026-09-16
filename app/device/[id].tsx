@@ -60,6 +60,8 @@ import { href } from '../../src/lib/nav';
 import type { Device, DogSizeMode, TrainerCommand } from '../../src/types/domain';
 import { colors, fontSize, radius, spacing } from '../../src/theme/theme';
 
+const SHOW_INTERNAL_TEST_UI = process.env.EXPO_PUBLIC_SMARTPET_INTERNAL_TEST_UI !== 'hidden';
+
 export default function DeviceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -201,7 +203,9 @@ export default function DeviceDetailScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          title: device.deviceType === 'trainer' ? '训狗器遥控器' : device.deviceName || deviceTypeLabel(device.deviceType),
+          title: device.deviceType === 'trainer'
+            ? SHOW_INTERNAL_TEST_UI ? '训狗器遥控器' : '训狗器详情'
+            : device.deviceName || deviceTypeLabel(device.deviceType),
           headerStyle: { backgroundColor: colors.indigo },
           headerTintColor: '#FFFFFF',
           headerTitleAlign: 'center',
@@ -312,18 +316,20 @@ export default function DeviceDetailScreen() {
           <Text style={styles.meta}>{petName ? petName : '未关联宠物'}</Text>
         </SectionCard>
 
-        {device.deviceType === 'trainer' ? (
-          <TrainerControls device={device} />
-        ) : device.deviceType === 'bark_stopper' ? (
-          <BarkStopperControls device={device} />
-        ) : (
-          <SectionCard title="设备能力">
-            <Text style={styles.meta}>
-              该设备类型（{deviceTypeLabel(device.deviceType)}）暂无专属控制。绑定
-              XG / ZF 前缀的设备码可体验训狗器 / 止吠器控制。
-            </Text>
-          </SectionCard>
-        )}
+        {SHOW_INTERNAL_TEST_UI ? (
+          device.deviceType === 'trainer' ? (
+            <TrainerControls device={device} />
+          ) : device.deviceType === 'bark_stopper' ? (
+            <BarkStopperControls device={device} />
+          ) : (
+            <SectionCard title="设备能力">
+              <Text style={styles.meta}>
+                该设备类型（{deviceTypeLabel(device.deviceType)}）暂无专属控制。绑定
+                XG / ZF 前缀的设备码可体验训狗器 / 止吠器控制。
+              </Text>
+            </SectionCard>
+          )
+        ) : null}
 
         <BleSyncCard device={device} onAdvertisementUpdate={setAdvertisementOverride} />
       </ScrollView>
@@ -1143,7 +1149,7 @@ function BleSyncCard({
       ) : null}
       {message ? <Text style={styles.feedback}>{message}</Text> : null}
 
-      <View style={styles.controlBlock}>
+      {SHOW_INTERNAL_TEST_UI ? <View style={styles.controlBlock}>
         <Text style={styles.controlLabel}>上传链路模拟测试</Text>
         <Text style={styles.meta}>
           生成一段有效 WAV，模拟“BLE 语音已接收并进入本地队列”，再上传后端并完成批次。此项不代表固件已输出真实语音。
@@ -1173,7 +1179,7 @@ function BleSyncCard({
             ))}
           </View>
         ) : null}
-      </View>
+      </View> : null}
     </SectionCard>
   );
 }

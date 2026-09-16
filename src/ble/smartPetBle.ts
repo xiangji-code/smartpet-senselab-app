@@ -195,6 +195,8 @@ const AUTO_RECONNECT_SCAN_TIMEOUT_MS = 8_000;
 const AUTO_RECONNECT_CONNECT_TIMEOUT_MS = 8_000;
 const AUTO_RECONNECT_BATCH_WINDOW_MS = 100;
 const INITIAL_ADVERTISEMENT_SCAN_TIMEOUT_MS = 300;
+const PERSISTENT_TX_LISTENER_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+const PERSISTENT_TX_READ_PROBE_DELAYS_MS = [800, 2_500, 5_000] as const;
 const AUTO_RECONNECT_STORAGE_PREFIX = 'smartpet.ble.auto-reconnect.v1';
 const idleConnectionStatus: BleConnectionStatus = {
   state: 'idle',
@@ -209,6 +211,8 @@ const idleConnectionStatus: BleConnectionStatus = {
 let nativeManager: BleManager | null = null;
 const activeNativeSessions = new Map<string, NativeSession>();
 const persistentDataTxListeners = new Map<string, PersistentDataTxListener>();
+const persistentDataTxListenerRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const persistentDataTxReadProbeTimers = new Map<string, Set<ReturnType<typeof setTimeout>>>();
 const activeDataConsumers = new Set<string>();
 const activeTransfers = new Set<string>();
 let pendingNativeSession: {
@@ -773,6 +777,9 @@ export async function syncPendingBleData(
   const declaredBlockLengths = new Map<number, number>();
   const frameCounts = new Map<number, number>();
   const frameSummaries: BleFrameTransferSummary[] = [];
+  const pendingBlockSignatures = new Map<number, string>();
+  const completedBlockSignatures = new Map<number, string>();
+  const duplicateBlockRetries = new Set<number>();
   let completedBytes = 0;
   let lastBlockId = 0;
   let requestedRecovery: { blockId: number; resendOffset: number } | null = null;
@@ -800,6 +807,40 @@ export async function syncPendingBleData(
     acknowledge?: BlockAcknowledgementSender,
   ) => {
     assertCurrent();
+    if (frame.type === 'meta') {
+      const signature = `${frame.totalLength}:${Array.from(frame.payload, (byte) =>
+        byte.toString(16).padStart(2, '0')).join('')}`;
+      if (completedBlockSignatures.get(frame.blockId) === signature) {
+        duplicateBlockRetries.add(frame.blockId);
+        diagnostics.record('duplicate_block_retry_started', {
+          blockId: frame.blockId,
+          totalLength: frame.totalLength,
+        });
+        return;
+      }
+      duplicateBlockRetries.delete(frame.blockId);
+      pendingBlockSignatures.set(frame.blockId, signature);
+    } else if (
+      completedBlockSignatures.has(frame.blockId) &&
+      !pendingBlockSignatures.has(frame.blockId)
+    ) {
+      duplicateBlockRetries.add(frame.blockId);
+    }
+
+    if (duplicateBlockRetries.has(frame.blockId)) {
+      if (frame.type !== 'meta' && frame.offset + frame.dataLength >= frame.totalLength) {
+        duplicateBlockRetries.delete(frame.blockId);
+        diagnostics.record('duplicate_block_retry_ignored', {
+          blockId: frame.blockId,
+          totalLength: frame.totalLength,
+        });
+        if (transferMode === 'notify' && acknowledge) {
+          await acknowledge('ok', frame.blockId, 0);
+        }
+      }
+      return;
+    }
+
     if (requestedRecovery?.blockId === frame.blockId) requestedRecovery = null;
     if (!declaredBlockLengths.has(frame.blockId)) {
       declaredBlockLengths.set(frame.blockId, frame.totalLength);
@@ -824,6 +865,9 @@ export async function syncPendingBleData(
       storedBlocks.push(stored);
       blocks.push(block);
       completedBytes += block.totalLength;
+      const signature = pendingBlockSignatures.get(block.blockId);
+      if (signature) completedBlockSignatures.set(block.blockId, signature);
+      pendingBlockSignatures.delete(block.blockId);
       diagnostics.record('block_persisted', {
         blockId: block.blockId,
         type: block.type,
@@ -1018,7 +1062,13 @@ async function createNativeSession(
   const targetKey = getTargetKey(target);
   const resolvedOptions: NativeSessionOptions = {
     ...options,
-    knownDeviceId: options.knownDeviceId ?? autoReconnectIntents.get(targetKey)?.deviceId,
+    // A user-initiated connection must observe a fresh advertisement before connecting.
+    // Reusing a persisted Android device id can restore a GATT link without waking the
+    // device's pending-data push path. Explicit automatic reconnects may still use the
+    // remembered id and fall back to their shared scan when the direct attempt fails.
+    knownDeviceId: options.knownDeviceId ?? (
+      options.automaticReconnect ? autoReconnectIntents.get(targetKey)?.deviceId : undefined
+    ),
   };
 
   if (resolvedOptions.automaticReconnect && manuallyDisconnectedTargets.has(targetKey)) {
@@ -1231,21 +1281,23 @@ function registerNativeSession(
     rssi: typeof device.rssi === 'number' ? device.rssi : null,
     lastCheckedAt: typeof device.rssi === 'number' ? Date.now() : null,
   });
-  void ensurePersistentDataTxListener(session).catch((cause) => {
-    console.warn(
-      `[SmartPet BLE] ${target.deviceSn} 建立持续 TX Notify 监听失败：`,
-      cause instanceof Error ? cause.message : cause,
-    );
-  });
+  startPersistentDataTxListener(session);
   return session;
 }
 
-async function ensurePersistentDataTxListener(session: NativeSession): Promise<void> {
+async function ensurePersistentDataTxListener(
+  session: NativeSession,
+  retryAttempt = 0,
+): Promise<void> {
   const existing = persistentDataTxListeners.get(session.device.id);
   if (existing) return;
 
-  const transferMode = await withTimeout(assertDataTransferGattAvailable(session.device), 5_000, '检查数据服务超时');
-  if (transferMode !== 'notify') return;
+  // Some Android BLE stacks temporarily expose a cached TX characteristic as
+  // readable-only immediately after service discovery. SmartPet firmware still
+  // supports Notify, so attempting the subscription is more reliable than
+  // trusting that transient metadata and silently leaving a connected session
+  // unable to receive pushed data.
+  await withTimeout(assertDataTransferGattAvailable(session.device), 5_000, '检查数据服务超时');
   if (activeNativeSessions.get(session.targetKey) !== session) return;
   if (persistentDataTxListeners.has(session.device.id)) return;
 
@@ -1257,29 +1309,152 @@ async function ensurePersistentDataTxListener(session: NativeSession): Promise<v
     consumerError: null,
   };
   persistentDataTxListeners.set(session.device.id, listener);
-  listener.subscription = session.device.monitorCharacteristicForService(
-    BLE_UUIDS.dataService,
-    BLE_UUIDS.dataTx,
-    (error, characteristic) => {
-      if (persistentDataTxListeners.get(session.device.id) !== listener) return;
-      if (error) {
-        listener.consumerError?.(new Error(`接收设备 TX Notify 失败：${error.message}`));
-        removePersistentDataTxListener(session.device.id);
-        return;
-      }
-      const value = characteristic?.value;
-      if (!value || !isDeviceDataTxValue(value)) return;
-      if (listener.consumer) {
-        listener.consumer(value);
-        return;
-      }
-      const wasEmpty = listener.queuedValues.length === 0;
-      listener.queuedValues.push(value);
-      cancelAutoReconnectScan?.();
-      stopForegroundSmartPetScan();
-      if (wasEmpty) bleConnectionEvents.changed();
-    },
-  );
+  try {
+    listener.subscription = session.device.monitorCharacteristicForService(
+      BLE_UUIDS.dataService,
+      BLE_UUIDS.dataTx,
+      (error, characteristic) => {
+        if (persistentDataTxListeners.get(session.device.id) !== listener) return;
+        if (error) {
+          listener.consumerError?.(new Error(`接收设备 TX Notify 失败：${error.message}`));
+          removePersistentDataTxListener(session.device.id);
+          handlePersistentDataTxListenerFailure(session, retryAttempt, error);
+          return;
+        }
+        const value = characteristic?.value;
+        if (!value || !isDeviceDataTxValue(value)) return;
+        deliverPersistentDataTxValue(session, listener, value);
+      },
+    );
+    schedulePersistentDataTxReadProbes(session, listener);
+  } catch (cause) {
+    persistentDataTxListeners.delete(session.device.id);
+    throw cause;
+  }
+}
+
+function deliverPersistentDataTxValue(
+  session: NativeSession,
+  listener: PersistentDataTxListener,
+  value: string,
+): void {
+  clearPersistentDataTxReadProbes(session.device.id);
+  if (listener.consumer) {
+    listener.consumer(value);
+    return;
+  }
+  const wasEmpty = listener.queuedValues.length === 0;
+  listener.queuedValues.push(value);
+  cancelAutoReconnectScan?.();
+  stopForegroundSmartPetScan();
+  if (wasEmpty) bleConnectionEvents.changed();
+}
+
+function schedulePersistentDataTxReadProbes(
+  session: NativeSession,
+  listener: PersistentDataTxListener,
+): void {
+  clearPersistentDataTxReadProbes(session.device.id);
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  persistentDataTxReadProbeTimers.set(session.device.id, timers);
+
+  for (const delayMs of PERSISTENT_TX_READ_PROBE_DELAYS_MS) {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      if (timers.size === 0) persistentDataTxReadProbeTimers.delete(session.device.id);
+      void probePersistentDataTxByRead(session, listener);
+    }, delayMs);
+    timers.add(timer);
+  }
+}
+
+async function probePersistentDataTxByRead(
+  session: NativeSession,
+  listener: PersistentDataTxListener,
+): Promise<void> {
+  if (
+    activeNativeSessions.get(session.targetKey) !== session ||
+    persistentDataTxListeners.get(session.device.id) !== listener ||
+    listener.consumer ||
+    listener.queuedValues.length > 0 ||
+    activeTransfers.has(session.device.id) ||
+    txListenerCoordinator.activePurpose(session.device.id)
+  ) return;
+
+  try {
+    const characteristic = await withTimeout(
+      session.device.readCharacteristicForService(BLE_UUIDS.dataService, BLE_UUIDS.dataTx),
+      BLE_TRANSFER.readTimeoutMs,
+      '探测设备待传数据超时',
+    );
+    if (
+      activeNativeSessions.get(session.targetKey) !== session ||
+      persistentDataTxListeners.get(session.device.id) !== listener ||
+      listener.consumer ||
+      listener.queuedValues.length > 0
+    ) return;
+
+    const value = characteristic.value;
+    if (!value) return;
+    const parsed = parseBleTxValue(value);
+    if (parsed.kind !== 'frame') return;
+    console.info(`[SmartPet BLE] ${session.targetKey} Notify 首帧未到，已通过 TX Read 恢复接收`);
+    deliverPersistentDataTxValue(session, listener, value);
+  } catch (cause) {
+    console.warn(
+      `[SmartPet BLE] ${session.targetKey} TX Read 首帧探测未取到数据：`,
+      cause instanceof Error ? cause.message : cause,
+    );
+  }
+}
+
+function clearPersistentDataTxReadProbes(deviceId: string): void {
+  const timers = persistentDataTxReadProbeTimers.get(deviceId);
+  if (!timers) return;
+  for (const timer of timers) clearTimeout(timer);
+  persistentDataTxReadProbeTimers.delete(deviceId);
+}
+
+function startPersistentDataTxListener(session: NativeSession, attempt = 0): void {
+  if (
+    activeNativeSessions.get(session.targetKey) !== session ||
+    persistentDataTxListeners.has(session.device.id)
+  ) return;
+
+  void ensurePersistentDataTxListener(session, attempt).catch((cause) => {
+    persistentDataTxListeners.delete(session.device.id);
+    handlePersistentDataTxListenerFailure(session, attempt, cause);
+  });
+}
+
+function handlePersistentDataTxListenerFailure(
+  session: NativeSession,
+  attempt: number,
+  cause: unknown,
+): void {
+  if (activeNativeSessions.get(session.targetKey) !== session) return;
+  if (attempt >= PERSISTENT_TX_LISTENER_RETRY_DELAYS_MS.length) {
+    console.warn(
+      `[SmartPet BLE] ${session.targetKey} 建立持续 TX Notify 监听失败：`,
+      cause instanceof Error ? cause.message : cause,
+    );
+    return;
+  }
+  schedulePersistentDataTxListenerRetry(session, attempt);
+}
+
+function schedulePersistentDataTxListenerRetry(session: NativeSession, attempt: number): void {
+  const deviceId = session.device.id;
+  const existing = persistentDataTxListenerRetryTimers.get(deviceId);
+  if (existing) clearTimeout(existing);
+  const delayMs = PERSISTENT_TX_LISTENER_RETRY_DELAYS_MS[
+    Math.min(attempt, PERSISTENT_TX_LISTENER_RETRY_DELAYS_MS.length - 1)
+  ];
+  const timer = setTimeout(() => {
+    persistentDataTxListenerRetryTimers.delete(deviceId);
+    startPersistentDataTxListener(session, attempt + 1);
+  }, delayMs);
+  persistentDataTxListenerRetryTimers.set(deviceId, timer);
 }
 
 function isDeviceDataTxValue(value: string): boolean {
@@ -1292,6 +1467,7 @@ function isDeviceDataTxValue(value: string): boolean {
 }
 
 function removePersistentDataTxListener(deviceId: string): void {
+  clearPersistentDataTxReadProbes(deviceId);
   const listener = persistentDataTxListeners.get(deviceId);
   if (!listener) return;
   persistentDataTxListeners.delete(deviceId);
@@ -2031,7 +2207,12 @@ function dropNativeSession(
 ): void {
   const session = activeNativeSessions.get(targetKey);
   session?.disconnectSubscription.remove();
-  if (session) removePersistentDataTxListener(session.device.id);
+  if (session) {
+    const retryTimer = persistentDataTxListenerRetryTimers.get(session.device.id);
+    if (retryTimer) clearTimeout(retryTimer);
+    persistentDataTxListenerRetryTimers.delete(session.device.id);
+    removePersistentDataTxListener(session.device.id);
+  }
   activeNativeSessions.delete(targetKey);
   connectionHealthFailures.delete(targetKey);
   forgetConnectedDevice(targetKey);
